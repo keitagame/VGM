@@ -975,7 +975,7 @@ class YM2203Emu {
   _newOp() {
     return {
       mul:1, dt1:0,
-      tl:127,                  // total level (0=loud 127=silent)
+      tl:0,                  // total level (0=loud 127=silent)
       ks:0, ar:0, dr:0, sr:0, rr:15, sl:0,
       slLevel:0,               // sustain level in EG units
       // phase (20-bit accumulator; top 10 bits index SIN)
@@ -1136,8 +1136,8 @@ class YM2203Emu {
     while(this.ssgAcc >= 1) { this.ssgAcc -= 1; this._ssgTick(); }
     let ssgOut = this._ssgMix();
 
-    this.outL = Math.max(-1, Math.min(1, outL * 3.0 + ssgOut * 0.25));
-    this.outR = Math.max(-1, Math.min(1, outR * 3.0 + ssgOut * 0.25));
+    this.outL = Math.max(-1, Math.min(1, outL * 0.3 + ssgOut * 0.25));
+    this.outR = Math.max(-1, Math.min(1, outR * 0.3 + ssgOut * 0.25));
   }
 
   _egTick() {
@@ -1216,7 +1216,7 @@ class YM2203Emu {
       // TL: each step = 0.75dB = 4 EG-level units
       const att = Math.min(1023, op.egLevel + (op.tl << 2));
       if(att >= 832) return 0;       // fully silent
-      const amp   = e2a[att];
+      const amp   = 1.0;//e2a[att];
       const ph    = ((op.phase + (mod|0)) >>> 10) & 0x3FF; // top 10 bits
       return sin[ph] * amp;
     };
@@ -1235,7 +1235,7 @@ class YM2203Emu {
     // Modulation scale: op output (±1) → phase offset in 20-bit units
     // Standard OPN: max mod = ±1 full cycle when mod_depth = 1.0
     // We use PM/8 as the scale so that strong modulation sweeps half cycle
-    const S = PM >> 10; // scale factor for modulation
+    const S = 0;//PM >> 10; // scale factor for modulation
 
     let o1=op1out, o2, o3, o4, result;
     switch(c.algorithm) {
