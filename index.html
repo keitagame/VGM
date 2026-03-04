@@ -1012,7 +1012,7 @@ class YM2203Emu {
       switch(addr & 0xF0) {
         case 0x30:
           op.dt1 = (val>>4)&7;
-          op.mul = (val&0xF) || 0.5;
+          op.mul = (val&0xF) || 1;//0.5;
           this._calcPhaseInc(ch); return;
         case 0x40:
           op.tl = val & 0x7F; return;
@@ -1058,6 +1058,7 @@ class YM2203Emu {
     // Phase accumulator is 20-bit
     // Per-sample increment = fnum * 2^block * clock / (144 * sampleRate)
     // (no extra *2 needed; fnum range 0-2047)
+   
     const base = c.fnum * (1 << c.block) * this.clock / (144 * this.sr);
     for(const op of c.ops) op.phaseInc = base * op.mul;
     // keycode for KS
