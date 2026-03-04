@@ -1,0 +1,2279 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RETRO SOUND PLAYER</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --panel: #0f0f1a;
+    --panel2: #13131f;
+    --border: #1a2a4a;
+    --accent: #00ff88;
+    --accent2: #00ccff;
+    --accent3: #ff6600;
+    --warn: #ffcc00;
+    --red: #ff3366;
+    --dim: #1a3a2a;
+    --text: #b0ffd0;
+    --text2: #7aaabb;
+    --glow: 0 0 8px #00ff88, 0 0 20px #00ff8844;
+    --glow2: 0 0 8px #00ccff, 0 0 20px #00ccff44;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,136,0.015) 2px, rgba(0,255,136,0.015) 4px);
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(0,80,40,0.3) 0%, transparent 60%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* CRT scanline overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px, transparent 3px,
+      rgba(0,0,0,0.15) 3px, rgba(0,0,0,0.15) 4px
+    );
+    pointer-events: none; z-index: 999;
+    animation: scanroll 8s linear infinite;
+  }
+
+  @keyframes scanroll {
+    0% { background-position: 0 0; }
+    100% { background-position: 0 200px; }
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 16px;
+    position: relative; z-index: 1;
+  }
+
+  /* HEADER */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .logo {
+    font-family: 'VT323', monospace;
+    font-size: 2.8rem;
+    color: var(--accent);
+    text-shadow: var(--glow);
+    letter-spacing: 4px;
+    animation: flicker 6s infinite;
+  }
+
+  @keyframes flicker {
+    0%,95%,100% { opacity:1; }
+    96% { opacity:0.6; }
+    97% { opacity:1; }
+    98% { opacity:0.3; }
+    99% { opacity:1; }
+  }
+
+  .header-sub {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text2);
+    line-height: 1.6;
+  }
+
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .chip-badge {
+    background: var(--dim);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-size: 0.7rem;
+    padding: 3px 8px;
+    text-shadow: var(--glow);
+    letter-spacing: 2px;
+  }
+
+  /* LAYOUT */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 12px;
+  }
+
+  .left-col { display: flex; flex-direction: column; gap: 12px; }
+  .right-col { display: flex; flex-direction: column; gap: 12px; }
+
+  /* PANELS */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 14px;
+    position: relative;
+  }
+
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--accent2), transparent);
+    opacity: 0.5;
+  }
+
+  .panel-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 3px;
+    color: var(--accent2);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-title::before {
+    content: '▶';
+    color: var(--accent);
+    font-size: 0.5rem;
+  }
+
+  /* FILE DROP */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,255,136,0.03);
+  }
+
+  .drop-zone .drop-icon {
+    font-size: 2rem;
+    color: var(--accent);
+    text-shadow: var(--glow);
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .drop-text { font-size: 0.8rem; color: var(--text2); }
+  .drop-formats { font-size: 0.65rem; color: var(--accent); margin-top: 6px; letter-spacing: 1px; }
+
+  #fileInput { display: none; }
+
+  /* TRANSPORT */
+  .transport {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 1px;
+    position: relative;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    text-shadow: var(--glow);
+    box-shadow: 0 0 8px rgba(0,255,136,0.2);
+  }
+
+  .btn:active { transform: translateY(1px); }
+
+  .btn.primary {
+    background: var(--dim);
+    border-color: var(--accent);
+    color: var(--accent);
+    text-shadow: var(--glow);
+  }
+
+  .btn.active {
+    background: rgba(0,255,136,0.15);
+    border-color: var(--accent);
+    box-shadow: var(--glow);
+    color: var(--accent);
+  }
+
+  .btn-play { font-size: 1.2rem; padding: 8px 16px; }
+
+  /* PROGRESS */
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .time-display {
+    font-family: 'VT323', monospace;
+    font-size: 1.2rem;
+    color: var(--accent);
+    text-shadow: var(--glow);
+    min-width: 72px;
+  }
+
+  .progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    cursor: pointer;
+    position: relative;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(to right, var(--accent), var(--accent2));
+    box-shadow: 0 0 6px var(--accent);
+    transition: width 0.1s;
+    width: 0%;
+  }
+
+  .progress-bar:hover .progress-fill { box-shadow: 0 0 12px var(--accent); }
+
+  /* SONG INFO */
+  .song-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    font-size: 0.72rem;
+  }
+
+  .info-row { display: flex; flex-direction: column; gap: 2px; }
+  .info-label { color: var(--text2); font-size: 0.6rem; letter-spacing: 1px; }
+  .info-val {
+    color: var(--accent);
+    text-shadow: var(--glow);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* VISUALIZER */
+  #vizCanvas {
+    width: 100%;
+    height: 80px;
+    display: block;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+  }
+
+  /* SPECTRUM */
+  #specCanvas {
+    width: 100%;
+    height: 60px;
+    display: block;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    margin-top: 8px;
+  }
+
+  /* CHIP REGISTERS */
+  .reg-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    font-size: 0.62rem;
+  }
+
+  .reg-cell {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    padding: 3px 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    transition: border-color 0.1s, background 0.1s;
+  }
+
+  .reg-cell.active {
+    border-color: var(--accent);
+    background: rgba(0,255,136,0.05);
+  }
+
+  .reg-addr { color: var(--text2); font-size: 0.55rem; }
+  .reg-val { color: var(--accent); font-family: 'VT323', monospace; font-size: 0.9rem; }
+  .reg-name { color: var(--accent2); font-size: 0.5rem; }
+
+  /* CHANNEL STATUS */
+  .ch-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .ch-row {
+    display: grid;
+    grid-template-columns: 60px 1fr auto auto auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.65rem;
+    padding: 5px 8px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .ch-row.active {
+    border-left-color: var(--accent);
+    background: rgba(0,255,136,0.04);
+  }
+
+  .ch-row.ssg { border-left-color: var(--accent2); }
+  .ch-row.ssg.active { background: rgba(0,204,255,0.04); }
+
+  .ch-name { color: var(--text2); letter-spacing: 1px; }
+  .ch-note { color: var(--accent); font-family: 'VT323', monospace; font-size: 1rem; }
+
+  .ch-bar-wrap { flex: 1; height: 4px; background: var(--border); }
+  .ch-bar { height: 100%; background: var(--accent); transition: width 0.08s; }
+  .ch-row.ssg .ch-bar { background: var(--accent2); }
+
+  .ch-vol { color: var(--warn); font-size: 0.6rem; min-width: 28px; text-align: right; }
+
+  .op-dots {
+    display: flex; gap: 2px;
+  }
+  .op-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.1s;
+  }
+  .op-dot.on { background: var(--accent3); box-shadow: 0 0 4px var(--accent3); }
+
+  /* FM OP detail */
+  .op-detail {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin-top: 8px;
+  }
+
+  .op-panel {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    padding: 6px;
+    font-size: 0.58rem;
+  }
+
+  .op-panel.active { border-color: var(--accent3); }
+  .op-title {
+    color: var(--accent3);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.5rem;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+
+  .op-param { display: flex; justify-content: space-between; color: var(--text2); padding: 1px 0; }
+  .op-param span { color: var(--accent); }
+
+  /* LOG */
+  .log-area {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    height: 100px;
+    overflow-y: auto;
+    padding: 6px;
+    font-size: 0.6rem;
+    color: var(--text2);
+  }
+
+  .log-area::-webkit-scrollbar { width: 4px; }
+  .log-area::-webkit-scrollbar-thumb { background: var(--accent); }
+
+  .log-line { line-height: 1.6; }
+  .log-line.write { color: var(--accent); }
+  .log-line.info { color: var(--accent2); }
+  .log-line.warn { color: var(--warn); }
+  .log-line.err { color: var(--red); }
+
+  /* FORMAT selector */
+  .format-tabs {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .ftab {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    padding: 4px 10px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+  }
+
+  .ftab:hover { border-color: var(--accent2); color: var(--accent2); }
+  .ftab.active { border-color: var(--accent); color: var(--accent); background: rgba(0,255,136,0.07); text-shadow: var(--glow); }
+  .ftab.disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* CHIP selector */
+  .chip-sel {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+
+  .ctab {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.6rem;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .ctab.active {
+    border-color: var(--accent3);
+    color: var(--accent3);
+    background: rgba(255,102,0,0.07);
+  }
+
+  /* VGM header display */
+  .vgm-hdr-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    font-size: 0.62rem;
+  }
+
+  .hdr-row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .hdr-k { color: var(--text2); }
+  .hdr-v { color: var(--accent2); font-family: 'VT323', monospace; font-size: 0.85rem; }
+
+  /* LED indicator */
+  .led {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dim);
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .led.on { background: var(--accent); box-shadow: var(--glow); animation: pulse-led 0.5s infinite alternate; }
+  .led.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+  .led.err { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+  @keyframes pulse-led {
+    from { opacity: 0.7; }
+    to { opacity: 1; }
+  }
+
+  /* STATUS BAR */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    font-size: 0.6rem;
+    color: var(--text2);
+    margin-top: 12px;
+  }
+
+  .status-item { display: flex; align-items: center; gap: 5px; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--panel); }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  .divider {
+    width: 1px; height: 14px;
+    background: var(--border);
+  }
+
+  /* Sample files list */
+  .sample-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 8px;
+  }
+
+  .sample-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    font-size: 0.62rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .sample-item:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .sample-icon { color: var(--accent3); }
+
+  /* volume knob area */
+  .controls-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+
+  .volume-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.65rem;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 80px;
+    height: 3px;
+    background: var(--border);
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px; height: 10px;
+    background: var(--accent);
+    box-shadow: var(--glow);
+    cursor: pointer;
+  }
+
+  .loop-count {
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  select {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    padding: 3px 6px;
+    outline: none;
+  }
+  select:focus { border-color: var(--accent); }
+
+  @media (max-width: 800px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .reg-grid { grid-template-columns: repeat(3, 1fr); }
+    .op-detail { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="header">
+    <div class="logo">RETRO PLAYER</div>
+    <div class="header-sub">
+      VIDEO GAME MUSIC EMULATOR<br>
+      v1.0.0 // MULTI-CHIP ENGINE
+    </div>
+    <div class="header-right">
+      <span class="chip-badge">YM2203</span>
+      <span class="chip-badge" style="border-color:var(--accent2);color:var(--accent2)">VGM</span>
+      <div class="led" id="ledMain"></div>
+    </div>
+  </div>
+
+  <div class="main-grid">
+
+    <!-- LEFT COLUMN -->
+    <div class="left-col">
+
+      <!-- FORMAT / CHIP SELECT -->
+      <div class="panel">
+        <div class="panel-title">FORMAT &amp; CHIP SELECT</div>
+        <div class="format-tabs" id="fmtTabs">
+          <div class="ftab active" data-fmt="vgm">VGM/VGZ</div>
+          <div class="ftab disabled" data-fmt="nsf">NSF</div>
+          <div class="ftab disabled" data-fmt="gbs">GBS</div>
+          <div class="ftab disabled" data-fmt="spc">SPC</div>
+          <div class="ftab disabled" data-fmt="gym">GYM</div>
+        </div>
+        <div class="chip-sel" id="chipSel">
+          <div class="ctab active" data-chip="ym2203">YM2203</div>
+          <div class="ctab disabled" data-chip="ym2612">YM2612</div>
+          <div class="ctab disabled" data-chip="ym2151">YM2151</div>
+          <div class="ctab disabled" data-chip="sn76489">SN76489</div>
+          <div class="ctab disabled" data-chip="ay8910">AY-8910</div>
+        </div>
+      </div>
+
+      <!-- FILE LOAD -->
+      <div class="panel">
+        <div class="panel-title">FILE LOAD</div>
+        <div class="drop-zone" id="dropZone">
+          <span class="drop-icon">⬇</span>
+          <div class="drop-text">DROP VGM FILE HERE OR CLICK TO BROWSE</div>
+          <div class="drop-formats">SUPPORTED: .VGM .VGZ</div>
+          <input type="file" id="fileInput" accept=".vgm,.vgz">
+        </div>
+        <div class="sample-list" id="sampleList">
+          <div class="sample-item" id="demoBtn">
+            <span class="sample-icon">▶</span>
+            <span>[DEMO] YM2203 Synthesized Demo Track</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRANSPORT + PROGRESS -->
+      <div class="panel">
+        <div class="panel-title">TRANSPORT</div>
+        <div class="transport">
+          <button class="btn btn-play primary" id="btnPlay">▶ PLAY</button>
+          <button class="btn" id="btnStop">■ STOP</button>
+          <button class="btn" id="btnLoop">⟳ LOOP: OFF</button>
+          <div class="volume-wrap">
+            <span style="color:var(--text2)">VOL</span>
+            <input type="range" id="volSlider" min="0" max="100" value="80">
+            <span id="volVal" style="color:var(--accent)">80</span>
+          </div>
+        </div>
+        <div class="progress-row">
+          <div class="time-display" id="timeDisp">00:00</div>
+          <div class="progress-bar" id="progressBar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <div class="time-display" id="timeTotal">00:00</div>
+        </div>
+      </div>
+
+      <!-- SONG INFO -->
+      <div class="panel">
+        <div class="panel-title">TRACK INFO</div>
+        <div class="song-info" id="songInfo">
+          <div class="info-row">
+            <div class="info-label">TITLE</div>
+            <div class="info-val" id="infoTitle">---</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">AUTHOR</div>
+            <div class="info-val" id="infoAuthor">---</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">GAME</div>
+            <div class="info-val" id="infoGame">---</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">SYSTEM</div>
+            <div class="info-val" id="infoSystem">---</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">RELEASE</div>
+            <div class="info-val" id="infoRelease">---</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">CHIP CLOCK</div>
+            <div class="info-val" id="infoChipClk">---</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- WAVEFORM + SPECTRUM -->
+      <div class="panel">
+        <div class="panel-title">WAVEFORM / SPECTRUM</div>
+        <canvas id="vizCanvas"></canvas>
+        <canvas id="specCanvas"></canvas>
+      </div>
+
+      <!-- VGM HEADER -->
+      <div class="panel" id="vgmHdrPanel">
+        <div class="panel-title">VGM HEADER</div>
+        <div class="vgm-hdr-grid" id="vgmHdrGrid">
+          <div class="hdr-row"><span class="hdr-k">Version</span><span class="hdr-v" id="hdrVer">---</span></div>
+          <div class="hdr-row"><span class="hdr-k">GD3 Offset</span><span class="hdr-v" id="hdrGd3">---</span></div>
+          <div class="hdr-row"><span class="hdr-k">Total Samples</span><span class="hdr-v" id="hdrSamp">---</span></div>
+          <div class="hdr-row"><span class="hdr-k">Loop Offset</span><span class="hdr-v" id="hdrLoop">---</span></div>
+          <div class="hdr-row"><span class="hdr-k">Loop Samples</span><span class="hdr-v" id="hdrLoopSamp">---</span></div>
+          <div class="hdr-row"><span class="hdr-k">YM2203 Clock</span><span class="hdr-v" id="hdrYm2203">---</span></div>
+          <div class="hdr-row"><span class="hdr-k">Data Offset</span><span class="hdr-v" id="hdrDataOff">---</span></div>
+          <div class="hdr-row"><span class="hdr-k">EOF Offset</span><span class="hdr-v" id="hdrEof">---</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="right-col">
+
+      <!-- CHANNEL STATUS -->
+      <div class="panel">
+        <div class="panel-title">CHANNEL STATUS</div>
+        <div class="ch-grid" id="chGrid">
+          <!-- FM channels -->
+          <div class="ch-row" id="ch-fm0">
+            <div class="ch-name">FM CH1</div>
+            <div class="ch-bar-wrap"><div class="ch-bar" style="width:0%"></div></div>
+            <div class="op-dots">
+              <div class="op-dot" id="op0-0"></div>
+              <div class="op-dot" id="op0-1"></div>
+              <div class="op-dot" id="op0-2"></div>
+              <div class="op-dot" id="op0-3"></div>
+            </div>
+            <div class="ch-note" id="note-fm0">---</div>
+            <div class="ch-vol" id="vol-fm0">--</div>
+          </div>
+          <div class="ch-row" id="ch-fm1">
+            <div class="ch-name">FM CH2</div>
+            <div class="ch-bar-wrap"><div class="ch-bar" style="width:0%"></div></div>
+            <div class="op-dots">
+              <div class="op-dot" id="op1-0"></div>
+              <div class="op-dot" id="op1-1"></div>
+              <div class="op-dot" id="op1-2"></div>
+              <div class="op-dot" id="op1-3"></div>
+            </div>
+            <div class="ch-note" id="note-fm1">---</div>
+            <div class="ch-vol" id="vol-fm1">--</div>
+          </div>
+          <div class="ch-row" id="ch-fm2">
+            <div class="ch-name">FM CH3</div>
+            <div class="ch-bar-wrap"><div class="ch-bar" style="width:0%"></div></div>
+            <div class="op-dots">
+              <div class="op-dot" id="op2-0"></div>
+              <div class="op-dot" id="op2-1"></div>
+              <div class="op-dot" id="op2-2"></div>
+              <div class="op-dot" id="op2-3"></div>
+            </div>
+            <div class="ch-note" id="note-fm2">---</div>
+            <div class="ch-vol" id="vol-fm2">--</div>
+          </div>
+          <!-- SSG channels -->
+          <div class="ch-row ssg" id="ch-ssg0">
+            <div class="ch-name" style="color:var(--accent2)">SSG A</div>
+            <div class="ch-bar-wrap"><div class="ch-bar" style="width:0%"></div></div>
+            <div class="op-dots"><div class="op-dot" id="ssg0-dot"></div></div>
+            <div class="ch-note" id="note-ssg0" style="color:var(--accent2)">---</div>
+            <div class="ch-vol" id="vol-ssg0">--</div>
+          </div>
+          <div class="ch-row ssg" id="ch-ssg1">
+            <div class="ch-name" style="color:var(--accent2)">SSG B</div>
+            <div class="ch-bar-wrap"><div class="ch-bar" style="width:0%"></div></div>
+            <div class="op-dots"><div class="op-dot" id="ssg1-dot"></div></div>
+            <div class="ch-note" id="note-ssg1" style="color:var(--accent2)">---</div>
+            <div class="ch-vol" id="vol-ssg1">--</div>
+          </div>
+          <div class="ch-row ssg" id="ch-ssg2">
+            <div class="ch-name" style="color:var(--accent2)">SSG C</div>
+            <div class="ch-bar-wrap"><div class="ch-bar" style="width:0%"></div></div>
+            <div class="op-dots"><div class="op-dot" id="ssg2-dot"></div></div>
+            <div class="ch-note" id="note-ssg2" style="color:var(--accent2)">---</div>
+            <div class="ch-vol" id="vol-ssg2">--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FM OP DETAIL (ch 0) -->
+      <div class="panel" id="opDetailPanel">
+        <div class="panel-title">FM CH1 — OPERATOR DETAIL</div>
+        <div style="display:flex;gap:6px;margin-bottom:6px;font-size:0.6rem;color:var(--text2)">
+          <span>CH SELECT:</span>
+          <select id="opDetailCh" style="font-size:0.6rem">
+            <option value="0">CH1</option>
+            <option value="1">CH2</option>
+            <option value="2">CH3</option>
+          </select>
+        </div>
+        <div class="op-detail" id="opDetail">
+          <!-- 4 operators filled by JS -->
+        </div>
+      </div>
+
+      <!-- REGISTER DUMP -->
+      <div class="panel">
+        <div class="panel-title">REGISTER MAP — YM2203</div>
+        <div style="font-size:0.58rem;color:var(--text2);margin-bottom:6px;">
+          <span style="color:var(--accent)">●</span> WRITTEN &nbsp;
+          <span style="color:var(--accent2)">●</span> FM ADDR &nbsp;
+          <span style="color:var(--accent3)">●</span> SSG ADDR
+        </div>
+        <div class="reg-grid" id="regGrid">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+
+      <!-- EVENT LOG -->
+      <div class="panel">
+        <div class="panel-title">REGISTER WRITE LOG</div>
+        <div class="log-area" id="logArea"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <div class="status-item"><div class="led" id="ledPlay"></div><span id="statusPlay">STOPPED</span></div>
+    <div class="divider"></div>
+    <div class="status-item"><span style="color:var(--accent2)">FORMAT:</span><span id="statusFmt">---</span></div>
+    <div class="divider"></div>
+    <div class="status-item"><span style="color:var(--accent2)">CHIP:</span><span id="statusChip">YM2203</span></div>
+    <div class="divider"></div>
+    <div class="status-item"><span style="color:var(--accent2)">SAMPLE:</span><span id="statusSample">0</span></div>
+    <div class="divider"></div>
+    <div class="status-item"><span style="color:var(--accent2)">CMD/s:</span><span id="statusCps">0</span></div>
+    <div class="divider"></div>
+    <div class="status-item"><span style="color:var(--accent2)">LOOP#:</span><span id="statusLoop">0</span></div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+// ============================================================
+// RETRO PLAYER - YM2203 (OPN) Emulator
+// FM: 3ch × 4op  SSG: 3ch (AY-3-8910 compatible)
+// Reference: YM2203 datasheet, MAME ym2203.cpp, fmgen
+// ============================================================
+
+function hexStr(v, digits=2) { return (v>>>0).toString(16).toUpperCase().padStart(digits,'0'); }
+function u8(d,o)  { return d[o]; }
+function u16le(d,o){ return (d[o]|(d[o+1]<<8))>>>0; }
+function u32le(d,o){ return (d[o]|(d[o+1]<<8)|(d[o+2]<<16)|(d[o+3]<<24))>>>0; }
+
+// ─── YM2203 (OPN) EMULATOR ────────────────────────────────────
+// Fixed implementation based on OPN hardware spec
+//
+// Key corrections:
+//  - Phase counter: 20-bit, increments by fnum<<block each FM clock
+//    FM clock = chipClock/144; per-sample inc = fnum * 2^block * clock / (144*sr)
+//  - TL attenuation: TL 0-127, each unit = 0.75dB = 4 EG units (0.1875dB each)
+//    So att_from_tl = tl * 4, range 0-508
+//  - EG level range: 0 (loudest) to 1023 (silent, ~96dB)
+//  - Modulation: opOut returns value in range ±1, scaled to ±(PMOD/4) for phase mod
+//    This gives maximum FM mod depth of ~quarter-cycle which sounds right
+//  - Feedback: fbBuf holds raw sin output, scaled by 2^(fb-1) / 4
+//  - Attack formula: egLevel = egLevel - ((egLevel+1) >> (15-rate_eff))
+//    Fast when rate high, converges to 0
+
+class YM2203Emu {
+  constructor(clock, sampleRate) {
+    this.clock = clock || 3993600;
+    this.sr    = sampleRate;
+
+    this.registers  = new Uint8Array(256);
+    this.regsWritten= new Uint8Array(256);
+
+    // Sin table (1024 entries, ±1)
+    this.SIN = new Float32Array(1024);
+    for(let i=0;i<1024;i++) this.SIN[i] = Math.sin(2*Math.PI*i/1024);
+
+    // EG level → linear amplitude (0=1.0, 1023≈0)
+    this.EG2AMP = new Float32Array(1024);
+    for(let i=0;i<1024;i++) this.EG2AMP[i] = (i < 832) ? Math.pow(10, -i*0.1875/20) : 0;
+
+    // EG increment table (MAME reference)
+    // Indexed by [rate>>2][counter&7], where counter cycles at EG clock
+    this.EG_INC = [
+      [0,0,0,0,0,0,0,0], // rate 0-3
+      [0,0,0,0,0,0,0,0],
+      [0,1,0,1,0,1,0,1], // rate 8-11
+      [0,1,0,1,0,1,0,1],
+      [0,1,0,1,0,1,0,1],
+      [0,1,0,1,0,1,0,1],
+      [0,1,1,1,0,1,1,1],
+      [0,1,1,1,0,1,1,1],
+      [0,1,0,1,0,1,0,1],
+      [0,1,0,1,1,1,0,1],
+      [0,1,1,1,0,1,1,1],
+      [0,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1],
+      [1,1,1,2,1,1,1,2],
+      [1,2,1,2,1,2,1,2],
+      [2,2,2,2,2,2,2,2],
+    ];
+
+    // SLOT_ORDER: register slot bits → operator index
+    // OPN reg slots: bit0=OP1, bit1=OP3, bit2=OP2, bit3=OP4
+    // but addr decoding: (addr>>2)&3 gives slot 0,1,2,3 = OP1,OP3,OP2,OP4
+    this.SLOT_ORDER = [0, 2, 1, 3];
+
+    // FM channels
+    this.fm = Array.from({length:3}, () => ({
+      fnum:0, block:0, keycode:0,
+      keyOn:false,
+      algorithm:0, feedback:0, pan:3,
+      fbBuf: new Float32Array(2),
+      ops: Array.from({length:4}, () => this._newOp()),
+    }));
+
+    // SSG
+    this.ssg = Array.from({length:3}, () =>
+      ({period:1, phase:0, out:0, vol:0, envEnable:false, toneEn:false, noiseEn:false}));
+    this.ssgNoise = {period:1, phase:0, lfsr:0x1FFFF, out:1};
+    this.ssgEnv   = {period:1, phase:0, step:0, stepLen:1, shape:0,
+                     level:0, attack:false, alt:false, hold:false, holding:false};
+
+    // Timing accumulators
+    // EG clock = chipClock / 144 / 3  (one EG tick every 3 FM clocks)
+    this.egTicksPerSample = this.clock / 144 / 3 / this.sr;
+    this.egAcc = 0;
+    this.egCounter = 0; // free-running 12-bit
+
+    // SSG clock = chipClock / 8
+    this.ssgTicksPerSample = this.clock / 8 / this.sr;
+    this.ssgAcc = 0;
+
+    this.outL = 0; this.outR = 0;
+  }
+
+  _newOp() {
+    return {
+      mul:1, dt1:0,
+      tl:127,                  // total level (0=loud 127=silent)
+      ks:0, ar:0, dr:0, sr:0, rr:15, sl:0,
+      slLevel:0,               // sustain level in EG units
+      // phase (20-bit accumulator; top 10 bits index SIN)
+      phase:0, phaseInc:0,
+      // EG
+      egPhase:'off',
+      egLevel:1023,
+      // effective rates (precomputed)
+      rateAR:0, rateDR:0, rateSR:0, rateRR:63,
+    };
+  }
+
+  // ── Register write ──────────────────────────────────────
+  write(addr, val) {
+    this.registers[addr] = val & 0xFF;
+    this.regsWritten[addr] = 1;
+    this._apply(addr, val & 0xFF);
+  }
+
+  _apply(addr, val) {
+    if(addr <= 0x0F) { this._ssgWrite(addr, val); return; }
+
+    if(addr === 0x28) {       // KEY ON/OFF
+      const ch = val & 0x03; if(ch >= 3) return;
+      const sl = (val >> 4) & 0x0F;
+      this._keyOn(ch, sl); return;
+    }
+
+    // Operator regs 0x30–0x9F
+    if(addr >= 0x30 && addr <= 0x9F) {
+      const ch   = addr & 0x03; if(ch >= 3) return;
+      const slot = (addr >> 2) & 0x03;
+      const op   = this.fm[ch].ops[this.SLOT_ORDER[slot]];
+      switch(addr & 0xF0) {
+        case 0x30:
+          op.dt1 = (val>>4)&7;
+          op.mul = (val&0xF) || 0.5;
+          this._calcPhaseInc(ch); return;
+        case 0x40:
+          op.tl = val & 0x7F; return;
+        case 0x50:
+          op.ks = (val>>6)&3; op.ar = val&0x1F;
+          this._calcRates(this.fm[ch], op); return;
+        case 0x60:
+          op.dr = val&0x1F;
+          this._calcRates(this.fm[ch], op); return;
+        case 0x70:
+          op.sr = val&0x1F;
+          this._calcRates(this.fm[ch], op); return;
+        case 0x80:
+          op.sl = (val>>4)&0xF; op.rr = val&0xF;
+          op.slLevel = (op.sl === 15) ? 1023 : op.sl << 5;
+          this._calcRates(this.fm[ch], op); return;
+      }
+      return;
+    }
+
+    // Freq regs
+    if(addr >= 0xA4 && addr <= 0xA6) { /* hi byte stored, applied with lo */ return; }
+    if(addr >= 0xA0 && addr <= 0xA2) {
+      const ch = addr - 0xA0;
+      const hi = this.registers[0xA4+ch];
+      this.fm[ch].fnum  = val | ((hi&7)<<8);
+      this.fm[ch].block = (hi>>3)&7;
+      this._calcPhaseInc(ch); return;
+    }
+    if(addr >= 0xB0 && addr <= 0xB2) {
+      const ch = addr - 0xB0;
+      this.fm[ch].algorithm = val&7;
+      this.fm[ch].feedback  = (val>>3)&7; return;
+    }
+    if(addr >= 0xB4 && addr <= 0xB6) {
+      const ch = addr - 0xB4;
+      this.fm[ch].pan = (val>>6)&3; return;
+    }
+  }
+
+  _calcPhaseInc(ch) {
+    const c = this.fm[ch];
+    // Phase accumulator is 20-bit
+    // Per-sample increment = fnum * 2^block * clock / (144 * sampleRate)
+    // (no extra *2 needed; fnum range 0-2047)
+    const base = c.fnum * (1 << c.block) * this.clock / (144 * this.sr);
+    for(const op of c.ops) op.phaseInc = base * op.mul;
+    // keycode for KS
+    c.keycode = (c.block << 2) | ((c.fnum >> 7) & 3);
+    for(const op of c.ops) this._calcRates(c, op);
+  }
+
+  _calcRates(ch, op) {
+    const kc = ch.keycode || 0;
+    const ks = op.ks ? kc : (kc >> 2);
+    const clamp = r => Math.min(63, Math.max(0, r));
+    op.rateAR = op.ar ? clamp(op.ar*2 + ks) : 0;
+    op.rateDR = op.dr ? clamp(op.dr*2 + ks) : 0;
+    op.rateSR = op.sr ? clamp(op.sr*2 + ks) : 0;
+    op.rateRR = clamp(op.rr*4 + 2 + ks);
+  }
+
+  _keyOn(ch, slotMask) {
+    const c = this.fm[ch];
+    c.keyOn = slotMask !== 0;
+    for(let s=0;s<4;s++) {
+      const op = c.ops[this.SLOT_ORDER[s]];
+      if(slotMask & (1<<s)) {
+        op.phase   = 0;
+        op.egPhase = 'attack';
+        op.egLevel = 1023;
+        if(s === 0) { c.fbBuf[0] = 0; c.fbBuf[1] = 0; }
+      } else {
+        if(op.egPhase !== 'off') op.egPhase = 'release';
+      }
+    }
+  }
+
+  // ── SSG ──────────────────────────────────────────────────
+  _ssgWrite(addr, val) {
+    const r = this.registers;
+    const s = this.ssg, n = this.ssgNoise, e = this.ssgEnv;
+    switch(addr) {
+      case 0: case 1: s[0].period = Math.max(1,(r[0]|(r[1]<<8))&0xFFF); break;
+      case 2: case 3: s[1].period = Math.max(1,(r[2]|(r[3]<<8))&0xFFF); break;
+      case 4: case 5: s[2].period = Math.max(1,(r[4]|(r[5]<<8))&0xFFF); break;
+      case 6: n.period = Math.max(1, val&0x1F); break;
+      case 7:
+        s[0].toneEn=!(val&1); s[1].toneEn=!(val&2); s[2].toneEn=!(val&4);
+        s[0].noiseEn=!(val&8); s[1].noiseEn=!(val&16); s[2].noiseEn=!(val&32); break;
+      case 8:  s[0].vol=val&0xF; s[0].envEnable=!!(val&16); break;
+      case 9:  s[1].vol=val&0xF; s[1].envEnable=!!(val&16); break;
+      case 10: s[2].vol=val&0xF; s[2].envEnable=!!(val&16); break;
+      case 11: case 12:
+        e.period = Math.max(1, r[11]|(r[12]<<8));
+        e.stepLen = e.period; break;
+      case 13:
+        e.shape = val&0xF;
+        e.step = 0; e.phase = 0; e.holding = false;
+        e.attack = !!(val&4); e.alt = !!(val&2); e.hold = !!(val&1);
+        e.level = e.attack ? 0 : 15; break;
+    }
+  }
+
+  // ── Main tick (one audio sample) ─────────────────────────
+  tick() {
+    // EG clock
+    this.egAcc += this.egTicksPerSample;
+    while(this.egAcc >= 1) { this.egAcc -= 1; this._egTick(); }
+
+    // FM
+    let outL=0, outR=0;
+    for(let ch=0;ch<3;ch++) {
+      const out = this._fmCalc(ch);
+      if(this.fm[ch].pan & 2) outL += out;
+      if(this.fm[ch].pan & 1) outR += out;
+    }
+
+    // SSG
+    this.ssgAcc += this.ssgTicksPerSample;
+    while(this.ssgAcc >= 1) { this.ssgAcc -= 1; this._ssgTick(); }
+    let ssgOut = this._ssgMix();
+
+    this.outL = Math.max(-1, Math.min(1, outL * 3.0 + ssgOut * 0.25));
+    this.outR = Math.max(-1, Math.min(1, outR * 3.0 + ssgOut * 0.25));
+  }
+
+  _egTick() {
+    this.egCounter = (this.egCounter + 1) & 0xFFF;
+    for(let ch=0;ch<3;ch++) {
+      for(const op of this.fm[ch].ops) {
+        if(op.egPhase === 'off') continue;
+        let rate, inc;
+        switch(op.egPhase) {
+          case 'attack':
+  rate = op.rateAR;
+  if (rate === 0) break;
+
+  if (rate >= 62) {
+    op.egLevel = 0;
+    op.egPhase = 'decay';
+    break;
+  }
+
+  inc = this._egInc(rate);
+  if (inc) {
+    // 正しい指数攻撃（MAME方式）
+    op.egLevel += (~op.egLevel * inc) >> 4;
+    if (op.egLevel <= 0) {
+      op.egLevel = 0;
+      op.egPhase = 'decay';
+    }
+  }
+  break;
+          case 'decay':
+            rate = op.rateDR;
+            inc = this._egInc(rate);
+            op.egLevel = Math.min(1023, op.egLevel + inc);
+            if(op.egLevel >= op.slLevel) { op.egLevel = op.slLevel; op.egPhase = 'sustain'; }
+            break;
+          case 'sustain':
+            rate = op.rateSR;
+            inc = this._egInc(rate);
+            op.egLevel = Math.min(1023, op.egLevel + inc);
+            if(op.egLevel >= 1023) { op.egLevel = 1023; op.egPhase = 'off'; }
+            break;
+          case 'release':
+            rate = op.rateRR;
+            inc = this._egInc(rate);
+            op.egLevel = Math.min(1023, op.egLevel + inc);
+            if(op.egLevel >= 1023) { op.egLevel = 1023; op.egPhase = 'off'; }
+            break;
+        }
+      }
+    }
+  }
+
+  _egInc(rate) {
+    if(rate <= 0) return 0;
+    // Which counter shift to use: higher rate = faster counter
+    const shift = Math.max(0, 11 - (rate>>2));
+    const row   = Math.min(15, rate>>2);
+    const phase = (this.egCounter >> shift) & 7;
+    return this.EG_INC[row][phase];
+  }
+
+  _fmCalc(ch) {
+    const c   = this.fm[ch];
+    const ops = c.ops;
+    const sin = this.SIN;
+    const e2a = this.EG2AMP;
+    const PM  = 1 << 20; // 20-bit phase
+
+    // Advance all phase counters
+    for(const op of ops) op.phase = (op.phase + op.phaseInc) & 0xFFFFF;
+
+    // opSin: compute sin output of an operator with phase modulation
+    // mod = phase offset in 20-bit units
+    // Returns amplitude-weighted sin, range ≈ ±1
+    const opSin = (op, mod) => {
+      // TL: each step = 0.75dB = 4 EG-level units
+      const att = Math.min(1023, op.egLevel + (op.tl << 2));
+      if(att >= 832) return 0;       // fully silent
+      const amp   = e2a[att];
+      const ph    = ((op.phase + (mod|0)) >>> 10) & 0x3FF; // top 10 bits
+      return sin[ph] * amp;
+    };
+
+    // Feedback: OP1 self-modulates using average of last two outputs
+    // Scale: feedback=0 → no mod, feedback=7 → mod ≈ ±256 (in PM units)
+    let fb = 0;
+    if(c.feedback > 0) {
+      const fbAvg = (c.fbBuf[0] + c.fbBuf[1]) * 0.5;
+      fb = fbAvg * (PM >> (9 - c.feedback)); // 2^(fb-1) / pi ≈ shift
+    }
+    const op1out = opSin(ops[0], fb);
+    c.fbBuf[0] = c.fbBuf[1];
+    c.fbBuf[1] = op1out;
+
+    // Modulation scale: op output (±1) → phase offset in 20-bit units
+    // Standard OPN: max mod = ±1 full cycle when mod_depth = 1.0
+    // We use PM/8 as the scale so that strong modulation sweeps half cycle
+    const S = PM >> 10; // scale factor for modulation
+
+    let o1=op1out, o2, o3, o4, result;
+    switch(c.algorithm) {
+      case 0: // 1→2→3→4
+        o2 = opSin(ops[1], o1*S); o3 = opSin(ops[2], o2*S);
+        o4 = opSin(ops[3], o3*S); result = o4; break;
+      case 1: // (1+2)→3→4
+        o2 = opSin(ops[1], 0); o3 = opSin(ops[2], (o1+o2)*S);
+        o4 = opSin(ops[3], o3*S); result = o4; break;
+      case 2: // (1+(2→3))→4
+        o2 = opSin(ops[1], 0); o3 = opSin(ops[2], o2*S);
+        o4 = opSin(ops[3], (o1+o3)*S); result = o4; break;
+      case 3: // ((1→2)+3)→4
+        o2 = opSin(ops[1], o1*S); o3 = opSin(ops[2], 0);
+        o4 = opSin(ops[3], (o2+o3)*S); result = o4; break;
+      case 4: // (1→2)+(3→4)
+        o2 = opSin(ops[1], o1*S); o3 = opSin(ops[2], 0);
+        o4 = opSin(ops[3], o3*S); result = o2+o4; break;
+      case 5: // 1→(2+3+4)
+        o2 = opSin(ops[1], o1*S); o3 = opSin(ops[2], o1*S);
+        o4 = opSin(ops[3], o1*S); result = o2+o3+o4; break;
+      case 6: // (1→2)+3+4
+        o2 = opSin(ops[1], o1*S); o3 = opSin(ops[2], 0);
+        o4 = opSin(ops[3], 0); result = o2+o3+o4; break;
+      case 7: // 1+2+3+4
+        o2 = opSin(ops[1], 0); o3 = opSin(ops[2], 0);
+        o4 = opSin(ops[3], 0); result = o1+o2+o3+o4; break;
+      default: result = 0;
+    }
+    return result;
+  }
+
+  _ssgTick() {
+    const n = this.ssgNoise, e = this.ssgEnv;
+    // Tone
+    for(const ch of this.ssg) {
+      if(++ch.phase >= ch.period) { ch.phase=0; ch.out^=1; }
+    }
+    // Noise
+    if(++n.phase >= n.period) {
+      n.phase = 0;
+      const bit = (n.lfsr ^ (n.lfsr>>3)) & 1;
+      n.lfsr = ((n.lfsr>>1) | (bit<<16)) & 0x1FFFF;
+      n.out  = n.lfsr & 1;
+    }
+    // Envelope
+    if(!e.holding) {
+      if(++e.phase >= e.period) {
+        e.phase = 0;
+        e.step++;
+        if(e.step >= 16) {
+          e.step = 0;
+          if(e.hold) { e.holding=true; return; }
+          if(e.alt)  e.attack = !e.attack;
+        }
+        e.level = e.attack ? e.step : 15 - e.step;
+      }
+    }
+  }
+
+  _ssgMix() {
+    const envAmp = SSG_VOL[Math.min(15, this.ssgEnv.level)];
+    let out = 0;
+    for(const ch of this.ssg) {
+      const tone  = ch.toneEn  ? ch.out           : 1;
+      const noise = ch.noiseEn ? this.ssgNoise.out : 1;
+      if(!ch.toneEn && !ch.noiseEn) continue;
+      const sig = tone & noise;
+      const amp = ch.envEnable ? envAmp : SSG_VOL[ch.vol];
+      out += sig ? amp : 0;
+    }
+    return out / 3;
+  }
+
+  // ── UI helpers ───────────────────────────────────────────
+  getChInfo(ch) {
+    const c = this.fm[ch];
+    const note = this._fnumNote(c.fnum, c.block);
+    const opOn = c.ops.map(o => o.egPhase !== 'off');
+    const CARRIERS = [[3],[3],[3],[3],[1,3],[1,2,3],[1,2,3],[0,1,2,3]];
+    const cars = CARRIERS[c.algorithm] || [3];
+    let vol = 0;
+    for(const i of cars) {
+      const op = c.ops[i];
+      const att = Math.min(1023, op.egLevel + (op.tl<<2));
+      vol += this.EG2AMP[att];
+    }
+    return { note, vol: vol/cars.length, opOn, algorithm:c.algorithm, feedback:c.feedback };
+  }
+
+  getSsgInfo(ch) {
+    const c = this.ssg[ch];
+    return {
+      note:   this._ssgNote(c.period),
+      vol:    c.envEnable ? SSG_VOL[this.ssgEnv.level] : SSG_VOL[c.vol],
+      active: c.toneEn || c.noiseEn,
+    };
+  }
+
+  _fnumNote(fnum, block) {
+    if(!fnum) return '---';
+    const hz = this.clock * fnum * Math.pow(2, block) / (144 * 2048);
+    return _hzNote(hz);
+  }
+  _ssgNote(period) {
+    if(!period || period > 4095) return '---';
+    const hz = this.clock / (8 * period * 2);
+    return _hzNote(hz);
+  }
+}
+
+// SSG logarithmic volume table (AY-3-8910 style, 16 levels)
+const SSG_VOL = new Float32Array(16);
+for(let i=0;i<16;i++) SSG_VOL[i] = i===0 ? 0 : Math.pow(10, (i-15)*1.5/20);
+
+function _hzNote(hz) {
+  if(hz < 16 || hz > 22000) return '---';
+  const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const n = Math.round(12*Math.log2(hz/440))+69;
+  return N[((n%12)+12)%12] + (Math.floor(n/12)-1);
+}
+
+
+
+// ─── VGM PARSER ────────────────────────────────────────────
+class VgmParser {
+  constructor(buffer) {
+    this.data   = new Uint8Array(buffer);
+    this.header = {};
+    this.gd3    = {};
+    this._parseHeader();
+    if(this.header.gd3Offset) this._parseGd3();
+  }
+
+  _parseHeader() {
+    const d = this.data;
+    if(d.length < 0x40) throw new Error('Too short');
+    if(String.fromCharCode(d[0],d[1],d[2],d[3]) !== 'Vgm ') throw new Error('Not a VGM file (bad magic)');
+    const h = this.header;
+    h.eofOffset    = u32le(d,0x04) + 0x04;
+    h.version      = u32le(d,0x08);
+    h.sn76489Clock = u32le(d,0x0C);
+    h.ym2413Clock  = u32le(d,0x10);
+    h.gd3Offset    = u32le(d,0x14) ? (u32le(d,0x14)+0x14) : 0;
+    h.totalSamples = u32le(d,0x18);
+    h.loopOffset   = u32le(d,0x1C) ? (u32le(d,0x1C)+0x1C) : 0;
+    h.loopSamples  = u32le(d,0x20);
+    h.rate         = u32le(d,0x24) || 60;
+    if(h.version >= 0x0110) {
+      h.ym2612Clock = u32le(d,0x2C);
+      h.ym2151Clock = u32le(d,0x30);
+    }
+    if(h.version >= 0x0150 && d.length > 0x48) {
+      const doff = u32le(d,0x34);
+      h.vgmDataOffset = doff ? (doff + 0x34) : 0x40;
+      h.ym2203Clock   = u32le(d,0x44);
+    } else {
+      h.vgmDataOffset = 0x40;
+      h.ym2203Clock   = 0;
+    }
+    // Clamp data offset
+    h.vgmDataOffset = Math.max(0x40, Math.min(h.vgmDataOffset, d.length));
+  }
+
+  _parseGd3() {
+    const d = this.data, off = this.header.gd3Offset;
+    if(off+12 > d.length) return;
+    if(String.fromCharCode(d[off],d[off+1],d[off+2],d[off+3]) !== 'Gd3 ') return;
+    let p = off + 12;
+    const readStr = () => {
+      let s='';
+      while(p < d.length-1) {
+        const c = d[p]|(d[p+1]<<8); p+=2;
+        if(c===0) break;
+        s += String.fromCharCode(c);
+      }
+      return s;
+    };
+    this.gd3.trackName   = readStr();
+    this.gd3.trackNameJ  = readStr();
+    this.gd3.gameName    = readStr();
+    this.gd3.gameNameJ   = readStr();
+    this.gd3.systemName  = readStr();
+    this.gd3.systemNameJ = readStr();
+    this.gd3.author      = readStr();
+    this.gd3.authorJ     = readStr();
+    this.gd3.releaseDate = readStr();
+  }
+}
+
+// ─── AUDIO ENGINE ──────────────────────────────────────────
+class AudioEngine {
+  constructor() {
+    this.ctx = null;
+    this.gainNode = null;
+    this.analyser = null;
+    this.proc = null;
+    this.emu = null;
+    this.volume = 0.8;
+  }
+
+  async init(emu) {
+    this.emu = emu;
+    if(!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:44100});
+      this.gainNode = this.ctx.createGain();
+      this.gainNode.gain.value = this.volume;
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 2048;
+      this.gainNode.connect(this.analyser);
+      this.analyser.connect(this.ctx.destination);
+    }
+    if(this.proc) { this.proc.disconnect(); this.proc = null; }
+    const bufSize = 2048;
+    this.proc = this.ctx.createScriptProcessor(bufSize, 0, 2);
+    this.proc.onaudioprocess = e => {
+      if(!this.emu || !this.running) return;
+      const L = e.outputBuffer.getChannelData(0);
+      const R = e.outputBuffer.getChannelData(1);
+      for(let i=0;i<bufSize;i++) {
+        this.player && this.player.advanceSample();
+        this.emu.tick();
+        L[i] = this.emu.outL;
+        R[i] = this.emu.outR;
+      }
+    };
+    this.proc.connect(this.gainNode);
+    this.running = false;
+  }
+
+  start() { this.running = true; if(this.ctx.state==='suspended') this.ctx.resume(); }
+  stop()  { this.running = false; }
+  setVolume(v) { this.volume=v; if(this.gainNode) this.gainNode.gain.value=v; }
+  getTimeDomain() {
+    if(!this.analyser) return new Uint8Array(256);
+    const arr = new Uint8Array(this.analyser.fftSize);
+    this.analyser.getByteTimeDomainData(arr); return arr;
+  }
+  getFreqDomain() {
+    if(!this.analyser) return new Uint8Array(128);
+    const arr = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteFrequencyData(arr); return arr;
+  }
+}
+
+// ─── VGM PLAYER ────────────────────────────────────────────
+class VgmPlayer {
+  constructor(audioEngine) {
+    this.ae = audioEngine;
+    this.vgm = null;
+    this.emu = null;
+    this.playing = false;
+    this.loopEnabled = false;
+    this.loopCount = 0;
+    this.pc = 0;       // program counter into data
+    this.sample = 0;   // current sample position
+    this.sampleTarget = 0; // samples until next command
+    this.recentWrites = [];
+    this.cmdPerSec = 0;
+    this._cmdCount = 0;
+    this._cpsTimer = 0;
+    this.onWrite = null; // callback(addr, val)
+    this.onEnd = null;
+  }
+
+  load(vgm) {
+    this.vgm = vgm;
+    const clock = vgm.header.ym2203Clock || 3993600;
+    this.emu = new YM2203Emu(clock, 44100);
+    this.ae.emu = this.emu;
+    this.ae.player = this;
+    this.reset();
+  }
+
+  reset() {
+    if(!this.vgm) return;
+    this.pc = this.vgm.header.vgmDataOffset || 0x40;
+    this.sample = 0;
+    this.sampleTarget = 0;
+    this.loopCount = 0;
+    if(this.emu) {
+      this.emu.registers   = new Uint8Array(256);
+      this.emu.regsWritten = new Uint8Array(256);
+      this.emu.egCounter   = 0;
+      this.emu.egAcc       = 0;
+      this.emu.ssgAcc      = 0;
+      for(const c of this.emu.fm) {
+        c.fnum=0; c.block=0; c.keyOn=false; c.keycode=0;
+        c.algorithm=0; c.feedback=0; c.pan=3;
+        c.fbBuf[0]=0; c.fbBuf[1]=0;
+        for(const op of c.ops) {
+          op.mul=1; op.dt1=0; op.tl=127; op.ks=0;
+          op.ar=0; op.dr=0; op.sr=0; op.rr=15; op.sl=0;
+          op.phase=0; op.phaseInc=0; op.slLevel=0;
+          op.egPhase='off'; op.egLevel=1023;
+          op.rateAR=0; op.rateDR=0; op.rateSR=0; op.rateRR=63;
+        }
+      }
+      for(const c of this.emu.ssg) {
+        c.period=1; c.phase=0; c.out=0;
+        c.vol=0; c.envEnable=false; c.toneEn=false; c.noiseEn=false;
+      }
+      this.emu.ssgNoise = { period:1, phase:0, lfsr:0x1FFFF, out:1 };
+      this.emu.ssgEnv   = { period:1, phase:0, step:0, stepLen:1, shape:0, level:0, attack:false, alt:false, hold:false, holding:false };
+    }
+  }
+
+  play() {
+    this.playing = true;
+    this.ae.start();
+  }
+
+  stop() {
+    this.playing = false;
+    this.ae.stop();
+    this.reset();
+  }
+
+  pause() {
+    this.playing = !this.playing;
+    if(this.playing) this.ae.start(); else this.ae.stop();
+  }
+
+  // Called once per audio sample from ScriptProcessor
+  advanceSample() {
+    if(!this.playing || !this.vgm) return;
+    if(this.sampleTarget > 0) { this.sampleTarget--; this.sample++; return; }
+    this.sample++;
+    // Execute commands until next wait
+    for(let guard=0; guard<100; guard++) {
+      const cmd = this._nextCmd();
+      if(cmd === 'wait' || cmd === 'end') break;
+    }
+  }
+
+  _nextCmd() {
+    if(!this.vgm) return 'end';
+    const d = this.vgm.data;
+    if(this.pc >= d.length) return 'end';
+    const op = d[this.pc++];
+
+    switch(op) {
+      case 0x55: { // YM2203 write
+        const addr = d[this.pc++], val = d[this.pc++];
+        this.emu.write(addr, val);
+        this._cmdCount++;
+        if(this.onWrite) this.onWrite(addr, val);
+        break;
+      }
+      case 0x61: { // Wait N samples
+        this.sampleTarget = u16le(d, this.pc); this.pc+=2; return 'wait';
+      }
+      case 0x62: this.sampleTarget = 735; return 'wait'; // 60Hz wait
+      case 0x63: this.sampleTarget = 882; return 'wait'; // 50Hz wait
+      case 0x66: // End of data / loop
+        if(this.loopEnabled && this.vgm.header.loopOffset) {
+          this.pc = this.vgm.header.loopOffset;
+          this.loopCount++;
+        } else {
+          this.playing = false; this.ae.stop();
+          if(this.onEnd) this.onEnd();
+        }
+        return 'end';
+      default:
+        // Skip unknown (data blocks etc)
+        if(op >= 0x70 && op <= 0x7F) { this.sampleTarget = (op & 0x0F) + 1; return 'wait'; }
+        if(op === 0x67) { // Data block
+          this.pc += 2; const size = u32le(d, this.pc); this.pc += 4 + size;
+        } else if(op >= 0x80 && op <= 0x8F) {
+          // DAC stream
+          this.sampleTarget = op & 0x0F;
+          return 'wait';
+        } else if(op === 0xE0) { this.pc += 4; }
+        break;
+    }
+    return 'ok';
+  }
+
+  getDuration() {
+    if(!this.vgm) return 0;
+    return this.vgm.header.totalSamples / 44100;
+  }
+
+  getPosition() {
+    if(!this.vgm) return 0;
+    return this.sample / 44100;
+  }
+}
+
+// ─── DEMO TRACK GENERATOR ──────────────────────────────────
+// Generates a valid VGM with YM2203 commands
+function generateDemoVgm() {
+  const cmds = [];
+  const wait = n => { cmds.push(0x61, n&0xFF, (n>>8)&0xFF); };
+  const w60 = () => cmds.push(0x62);  // 735 samples (60Hz)
+  const w50 = () => cmds.push(0x63);  // 882 samples (50Hz)
+  const wr = (a,v) => cmds.push(0x55, a&0xFF, v&0xFF);
+
+  // ── Init ────────────────────────────────────────────────
+  // All SSG channels off
+  wr(0x07, 0xFF);
+  wr(0x08, 0x00); wr(0x09, 0x00); wr(0x0A, 0x00);
+
+  // FM pan (both speakers)
+  wr(0xB4, 0xC0); wr(0xB5, 0xC0); wr(0xB6, 0xC0);
+
+  // ── SSG melody section ───────────────────────────────────
+  // Enable tone A, B, C (bits 0,1,2 = tone disable; 0 = enabled)
+  wr(0x07, 0b00111000); // tone A,B,C on; noise all off
+  wr(0x08, 0x0C); wr(0x09, 0x0A); wr(0x0A, 0x08); // volumes
+
+  // Simple scale on SSG A: C4 D4 E4 F4 G4 A4 B4 C5
+  // tp = chipClock / (8 * 2 * freq)  clock=3993600
+  // C4=261.63 -> 3993600/(16*261.63)=953; D4=293.66->848; E4=329.63->756
+  // F4=349.23->714; G4=392->507; A4=440->451; B4=493.88->402; C5=523.25->953/2=477
+  const ssgScale = [
+    [953,0,0],[848,0,0],[756,0,0],[714,0,0],
+    [635,0,0],[566,0,0],[504,0,0],[477,0,0],
+  ];
+  for(const [tp] of ssgScale) {
+    wr(0x00, tp&0xFF); wr(0x01, (tp>>8)&0xF);
+    for(let i=0;i<6;i++) w60();
+  }
+  // Chord: C4+E4+G4
+  wr(0x00, 953&0xFF); wr(0x01, (953>>8)&0xF);
+  wr(0x02, 756&0xFF); wr(0x03, (756>>8)&0xF);
+  wr(0x04, 635&0xFF); wr(0x05, (635>>8)&0xF);
+  wr(0x08, 0x0C); wr(0x09, 0x0A); wr(0x0A, 0x09);
+  for(let i=0;i<16;i++) w60();
+
+  // SSG off
+  wr(0x07, 0xFF); wr(0x08,0); wr(0x09,0); wr(0x0A,0);
+  for(let i=0;i<4;i++) w60();
+
+  // ── FM section: CH1 Algorithm 4 (2 carriers) ────────────
+  // Algorithm 4: OP1->OP2 + OP3->OP4 (two parallel FM pairs)
+  wr(0xB0, (4<<3)|5); // alg=4, fb=5
+  wr(0xB4, 0xC0); // L+R
+
+  // Register slot layout for CH0:
+  // addr = base | (slot<<2) | ch
+  // Slot 0 = OP1, Slot 1 = OP3, Slot 2 = OP2, Slot 3 = OP4
+  // base 0x30 = DT/MUL, 0x40=TL, 0x50=KS/AR, 0x60=AM/DR, 0x70=SR, 0x80=SL/RR
+
+  // OP1 (slot0, ch0 = addr 0x30,0x40...): modulator
+  wr(0x30, 0x71); // DT1=7 MUL=1
+  wr(0x40, 0x23); // TL=35
+  wr(0x50, 0x9F); // KS=2 AR=31
+  wr(0x60, 0x05); // DR=5
+  wr(0x70, 0x02); // SR=2
+  wr(0x80, 0x27); // SL=2 RR=7
+
+  // OP3 (slot1 = addr+4): modulator
+  wr(0x34, 0x0D);
+  wr(0x44, 0x2F);
+  wr(0x54, 0x97);
+  wr(0x64, 0x1B);
+  wr(0x74, 0x0A);
+  wr(0x84, 0x1B);
+
+  // OP2 (slot2 = addr+8): carrier 1
+  wr(0x38, 0x33);
+  wr(0x48, 0x03); // TL=3 (loud carrier)
+  wr(0x58, 0x5F);
+  wr(0x68, 0x04);
+  wr(0x78, 0x01);
+  wr(0x88, 0x33);
+
+  // OP4 (slot3 = addr+0xC): carrier 2
+  wr(0x3C, 0x01);
+  wr(0x4C, 0x07); // TL=7
+  wr(0x5C, 0x94);
+  wr(0x6C, 0x04);
+  wr(0x7C, 0x01);
+  wr(0x8C, 0x13);
+
+  // FM melody (PC-88 style)
+  // fnum/block pairs for notes:
+  // Note   fnum  blk
+  // A3     572   3
+  // B3     642   3
+  // C4     681   4  (341 blk4? no: fnum=clock/(144*freq/2^block))
+  // Let's compute: fnum = freq * 144 * 2^(20-block) / clock
+  // For OPN: fnum = freq * (2^20) / (clock/144/2^(block-1))
+  // Simplified: fnum = freq * 2^(20-block) * 144 / clock * 2
+  // At block=4: fnum = freq * 2^16 * 144 / 3993600 ≈ freq * 2.362
+  const note = (freq, blk) => {
+    const fn = Math.round(freq * (1<<(20-blk)) * 144 / 3993600 * 2);
+    return [fn & 0xFF, ((blk<<3)|(fn>>8))&0xFF];
+  };
+
+  const melody = [
+    // [freq_hz, block, len_frames]
+    [440.0,  4, 8],  // A4
+    [493.88, 4, 8],  // B4
+    [523.25, 4, 8],  // C5
+    [587.33, 4, 8],  // D5
+    [659.25, 4,12],  // E5
+    [587.33, 4, 4],  // D5
+    [523.25, 4,16],  // C5
+    [493.88, 4, 8],  // B4
+    [440.0,  4, 8],  // A4
+    [392.0,  4, 8],  // G4
+    [349.23, 4, 8],  // F4
+    [392.0,  4,24],  // G4
+  ];
+
+  for(const [freq, blk, len] of melody) {
+    const [fl, fh] = note(freq, blk);
+    wr(0xA4, fh); wr(0xA0, fl); // F-num hi then lo
+    wr(0x28, 0xF0); // Key on ch0 all slots
+    for(let i=0;i<len;i++) w60();
+    wr(0x28, 0x00); // Key off
+    for(let i=0;i<2;i++) w60();
+  }
+
+  // ── FM CH2: Bass (Algorithm 0) ────────────────────────────
+  wr(0xB1, (0<<3)|3); // alg=0 fb=3 ch1
+  wr(0xB5, 0xC0);
+
+  // Bass operators for ch1 (addr|1)
+  wr(0x31, 0x54); wr(0x41, 0x1A); wr(0x51, 0x9F); wr(0x61, 0x18); wr(0x71, 0x08); wr(0x81, 0x26);
+  wr(0x35, 0x63); wr(0x45, 0x20); wr(0x55, 0x9F); wr(0x65, 0x10); wr(0x75, 0x06); wr(0x85, 0x26);
+  wr(0x39, 0x12); wr(0x49, 0x03); wr(0x59, 0x9F); wr(0x69, 0x12); wr(0x79, 0x06); wr(0x89, 0x36);
+  wr(0x3D, 0x01); wr(0x4D, 0x00); wr(0x5D, 0x9F); wr(0x6D, 0x09); wr(0x7D, 0x04); wr(0x8D, 0x16);
+
+  // Repeat melody with bass accompaniment
+  const bass = [110,110,130.81,146.83,164.81,146.83,130.81,110,110,98,87.31,98];
+  for(let i=0;i<melody.length;i++) {
+    const [freq, blk, len] = melody[i];
+    const [fl, fh] = note(freq, blk);
+    const bf = bass[i];
+    const [bfl, bfh] = note(bf, 2);
+    wr(0xA4, fh); wr(0xA0, fl);
+    wr(0xA5, bfh); wr(0xA1, bfl);
+    wr(0x28, 0xF0); // ch0 on
+    wr(0x28, 0xF1); // ch1 on
+    for(let j=0;j<len;j++) w60();
+    wr(0x28, 0x00); wr(0x28, 0x01);
+    for(let j=0;j<2;j++) w60();
+  }
+
+  // SSG outro
+  wr(0x07, 0b00111000);
+  wr(0x08,0x0C); wr(0x09,0x0A); wr(0x0A,0x08);
+  for(const [tp] of [[953,0,0],[756,0,0],[635,0,0],[477,0,0]]) {
+    wr(0x00,tp&0xFF); wr(0x01,(tp>>8)&0xF);
+    for(let i=0;i<8;i++) w60();
+  }
+  wr(0x07,0xFF); wr(0x08,0); wr(0x09,0); wr(0x0A,0);
+  for(let i=0;i<30;i++) w60();
+
+  cmds.push(0x66); // End
+
+  // Assemble VGM binary
+  const dataOffset = 0x40;
+  const eofOffset  = dataOffset + cmds.length;
+  const totalSamples = 44100 * 35;
+
+  const buf = new Uint8Array(eofOffset);
+  const dv  = new DataView(buf.buffer);
+
+  buf[0]=0x56; buf[1]=0x67; buf[2]=0x6D; buf[3]=0x20;
+  dv.setUint32(0x04, eofOffset-4, true);
+  dv.setUint32(0x08, 0x00000150, true); // version 1.50
+  dv.setUint32(0x18, totalSamples, true);
+  dv.setUint32(0x24, 60, true);
+  dv.setUint32(0x34, dataOffset-0x34, true);
+  dv.setUint32(0x44, 3993600, true); // YM2203 clock
+
+  for(let i=0;i<cmds.length;i++) buf[dataOffset+i] = cmds[i];
+  return buf.buffer;
+}
+
+// ─── UI CONTROLLER ─────────────────────────────────────────
+class UI {
+  constructor() {
+    this.ae = new AudioEngine();
+    this.player = null;
+    this.animFrame = null;
+    this.logLines = [];
+
+    this._buildRegGrid();
+    this._buildOpDetail();
+    this._bindEvents();
+    this._startViz();
+    this.log('RETRO PLAYER INITIALIZED', 'info');
+    this.log('YM2203 EMULATOR READY', 'info');
+    this.log('LOAD A VGM FILE OR CLICK DEMO', 'info');
+  }
+
+  _buildRegGrid() {
+    const grid = document.getElementById('regGrid');
+    grid.innerHTML = '';
+    // Show key YM2203 registers
+    const regs = [
+      // SSG
+      [0x00,'SSG-TP-A-L'],[0x01,'SSG-TP-A-H'],[0x02,'SSG-TP-B-L'],[0x03,'SSG-TP-B-H'],
+      [0x04,'SSG-TP-C-L'],[0x05,'SSG-TP-C-H'],[0x06,'NOISE-TP'],[0x07,'MIXER'],
+      [0x08,'VOL-A'],[0x09,'VOL-B'],[0x0A,'VOL-C'],[0x0B,'ENV-L'],
+      [0x0C,'ENV-H'],[0x0D,'ENV-SHP'],[0x27,'CH3MODE'],[0x28,'KEYON'],
+      // FM CH1 ops
+      [0x30,'CH1-DT-ML'],[0x40,'CH1-TL'],[0x50,'CH1-KS-AR'],[0x60,'CH1-DR'],
+      [0x70,'CH1-SR'],[0x80,'CH1-SL-RR'],[0xA0,'CH1-FN-L'],[0xA4,'CH1-BLK-FN'],
+      [0xB0,'CH1-ALG-FB'],[0xB4,'CH1-PAN'],
+      // FM CH2
+      [0xA1,'CH2-FN-L'],[0xA5,'CH2-BLK-FN'],[0xB1,'CH2-ALG-FB'],
+      // FM CH3
+      [0xA2,'CH3-FN-L'],[0xA6,'CH3-BLK-FN'],[0xB2,'CH3-ALG-FB'],
+    ];
+    for(const [addr, name] of regs) {
+      const cell = document.createElement('div');
+      cell.className = 'reg-cell';
+      cell.id = `reg-${hexStr(addr)}`;
+      cell.innerHTML = `<div class="reg-addr">${hexStr(addr,2)}</div><div class="reg-val" id="rv-${hexStr(addr)}">00</div><div class="reg-name">${name}</div>`;
+      grid.appendChild(cell);
+    }
+  }
+
+  _buildOpDetail() {
+    const detail = document.getElementById('opDetail');
+    detail.innerHTML = '';
+    for(let s=0; s<4; s++) {
+      const panel = document.createElement('div');
+      panel.className = 'op-panel';
+      panel.id = `opanel-${s}`;
+      panel.innerHTML = `
+        <div class="op-title">OP${s+1}</div>
+        <div class="op-param"><span>TL</span><span id="op-tl-${s}">--</span></div>
+        <div class="op-param"><span>AR</span><span id="op-ar-${s}">--</span></div>
+        <div class="op-param"><span>DR</span><span id="op-dr-${s}">--</span></div>
+        <div class="op-param"><span>SR</span><span id="op-sr-${s}">--</span></div>
+        <div class="op-param"><span>RR</span><span id="op-rr-${s}">--</span></div>
+        <div class="op-param"><span>SL</span><span id="op-sl-${s}">--</span></div>
+        <div class="op-param"><span>ML</span><span id="op-ml-${s}">--</span></div>
+        <div class="op-param"><span>DT</span><span id="op-dt-${s}">--</span></div>
+        <div class="op-param"><span>ENV</span><span id="op-env-${s}">---</span></div>
+      `;
+      detail.appendChild(panel);
+    }
+  }
+
+  _bindEvents() {
+    // Drop zone
+    const dz = document.getElementById('dropZone');
+    const fi = document.getElementById('fileInput');
+    dz.addEventListener('click', () => fi.click());
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault(); dz.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if(file) this._loadFile(file);
+    });
+    fi.addEventListener('change', () => { if(fi.files[0]) this._loadFile(fi.files[0]); });
+
+    // Demo button
+    document.getElementById('demoBtn').addEventListener('click', () => this._loadDemo());
+
+    // Transport
+    document.getElementById('btnPlay').addEventListener('click', () => this._togglePlay());
+    document.getElementById('btnStop').addEventListener('click', () => this._stopPlay());
+    const loopBtn = document.getElementById('btnLoop');
+    loopBtn.addEventListener('click', () => {
+      if(!this.player) return;
+      this.player.loopEnabled = !this.player.loopEnabled;
+      loopBtn.textContent = `⟳ LOOP: ${this.player.loopEnabled?'ON':'OFF'}`;
+      loopBtn.classList.toggle('active', this.player.loopEnabled);
+    });
+
+    // Volume
+    const vol = document.getElementById('volSlider');
+    vol.addEventListener('input', () => {
+      const v = vol.value/100;
+      this.ae.setVolume(v);
+      document.getElementById('volVal').textContent = vol.value;
+    });
+
+    // Progress bar
+    document.getElementById('progressBar').addEventListener('click', e => {
+      if(!this.player || !this.player.vgm) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const frac = (e.clientX - rect.left) / rect.width;
+      // seek approximate (reset + advance sample)
+      // Simple: reset and set sample
+      const targetSample = Math.floor(frac * this.player.vgm.header.totalSamples);
+      this._seekTo(frac);
+    });
+
+    // OP detail channel selector
+    document.getElementById('opDetailCh').addEventListener('change', e => {
+      this._selOpCh = parseInt(e.target.value);
+      document.querySelector('#opDetailPanel .panel-title').textContent = `FM CH${this._selOpCh+1} — OPERATOR DETAIL`;
+    });
+    this._selOpCh = 0;
+  }
+
+  async _loadFile(file) {
+    this.log(`LOADING: ${file.name}`, 'info');
+    let buf = await file.arrayBuffer();
+
+    // Decompress gzip (VGZ)
+    if(file.name.toLowerCase().endsWith('.vgz') || this._isGzip(buf)) {
+      try {
+        const ds = new DecompressionStream('gzip');
+        const ws = new WritableStream({ write(chunk) {} });
+        // Read all
+        const chunks = [];
+        let total = 0;
+        const reader = new Response(buf).body.pipeThrough(new DecompressionStream('gzip')).getReader();
+        while(true) {
+          const {done,value} = await reader.read();
+          if(done) break;
+          chunks.push(value); total += value.length;
+        }
+        const out = new Uint8Array(total); let off=0;
+        for(const c of chunks) { out.set(c,off); off+=c.length; }
+        buf = out.buffer;
+        this.log('VGZ DECOMPRESSED OK', 'info');
+      } catch(e) { this.log('GZIP DECOMPRESS FAILED: '+e.message,'err'); return; }
+    }
+
+    try {
+      const vgm = new VgmParser(buf);
+      this._setupPlayer(vgm);
+      this.log(`VGM PARSED OK - v${hexStr(vgm.header.version,8)}`, 'write');
+    } catch(e) {
+      this.log('PARSE ERROR: '+e.message, 'err');
+    }
+  }
+
+  _isGzip(buf) {
+    const d = new Uint8Array(buf);
+    return d[0]===0x1F && d[1]===0x8B;
+  }
+
+  async _loadDemo() {
+    this.log('GENERATING DEMO TRACK...', 'info');
+    const buf = generateDemoVgm();
+    const vgm = new VgmParser(buf);
+    // Inject fake GD3
+    vgm.gd3 = {
+      trackName: 'YM2203 Demo',
+      gameName: 'RETRO PLAYER',
+      systemName: 'PC-88',
+      author: 'DEMO ENGINE',
+      releaseDate: '2024'
+    };
+    this._setupPlayer(vgm);
+    this.log('DEMO TRACK LOADED', 'write');
+    // Auto play
+    setTimeout(() => this._startPlay(), 200);
+  }
+
+  async _setupPlayer(vgm) {
+    if(this.player && this.player.playing) this.player.stop();
+    await this.ae.init(null); // init audio ctx
+    this.player = new VgmPlayer(this.ae);
+    this.player.load(vgm);
+    this.ae.player = this.player;
+    this.player.onWrite = (addr, val) => {
+      this._onRegWrite(addr, val);
+    };
+    this.player.onEnd = () => {
+      this._onPlayEnd();
+    };
+
+    // Update header display
+    const h = vgm.header;
+    const g = vgm.gd3 || {};
+    document.getElementById('infoTitle').textContent   = g.trackName || '(no gd3)';
+    document.getElementById('infoAuthor').textContent  = g.author    || '---';
+    document.getElementById('infoGame').textContent    = g.gameName  || '---';
+    document.getElementById('infoSystem').textContent  = g.systemName|| '---';
+    document.getElementById('infoRelease').textContent = g.releaseDate|| '---';
+    document.getElementById('infoChipClk').textContent = h.ym2203Clock ? `${(h.ym2203Clock/1000).toFixed(0)}kHz` : '---';
+
+    document.getElementById('hdrVer').textContent      = `1.${hexStr(h.version&0xFF)}`;
+    document.getElementById('hdrGd3').textContent      = `0x${hexStr(h.gd3Offset||0,6)}`;
+    document.getElementById('hdrSamp').textContent     = h.totalSamples.toLocaleString();
+    document.getElementById('hdrLoop').textContent     = `0x${hexStr(h.loopOffset||0,6)}`;
+    document.getElementById('hdrLoopSamp').textContent = (h.loopSamples||0).toLocaleString();
+    document.getElementById('hdrYm2203').textContent   = h.ym2203Clock ? `${h.ym2203Clock.toLocaleString()} Hz` : 'N/A';
+    document.getElementById('hdrDataOff').textContent  = `0x${hexStr(h.vgmDataOffset,4)}`;
+    document.getElementById('hdrEof').textContent      = `0x${hexStr(h.eofOffset,6)}`;
+
+    document.getElementById('statusFmt').textContent = 'VGM';
+    document.getElementById('timeTotal').textContent = this._formatTime(this.player.getDuration());
+    document.getElementById('ledMain').className = 'led warn';
+    this.log('PLAYER READY - PRESS PLAY', 'info');
+  }
+
+  _togglePlay() {
+    if(!this.player) { this.log('NO FILE LOADED', 'warn'); return; }
+    if(this.player.playing) {
+      this.player.pause();
+      document.getElementById('btnPlay').textContent = '▶ PLAY';
+      document.getElementById('ledPlay').className = 'led';
+      document.getElementById('statusPlay').textContent = 'PAUSED';
+    } else {
+      this._startPlay();
+    }
+  }
+
+  _startPlay() {
+    if(!this.player) return;
+    this.player.play();
+    document.getElementById('btnPlay').textContent = '‖ PAUSE';
+    document.getElementById('btnPlay').classList.add('active');
+    document.getElementById('ledPlay').className = 'led on';
+    document.getElementById('statusPlay').textContent = 'PLAYING';
+    document.getElementById('ledMain').className = 'led on';
+  }
+
+  _stopPlay() {
+    if(!this.player) return;
+    this.player.stop();
+    document.getElementById('btnPlay').textContent = '▶ PLAY';
+    document.getElementById('btnPlay').classList.remove('active');
+    document.getElementById('ledPlay').className = 'led';
+    document.getElementById('statusPlay').textContent = 'STOPPED';
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('timeDisp').textContent = '00:00';
+    // Reset reg display
+    for(const reg of document.querySelectorAll('.reg-cell')) reg.classList.remove('active');
+    for(const rv of document.querySelectorAll('[id^=rv-]')) rv.textContent = '00';
+  }
+
+  _onPlayEnd() {
+    document.getElementById('btnPlay').textContent = '▶ PLAY';
+    document.getElementById('btnPlay').classList.remove('active');
+    document.getElementById('ledPlay').className = 'led';
+    document.getElementById('statusPlay').textContent = 'STOPPED';
+    this.log('PLAYBACK COMPLETE', 'info');
+  }
+
+  _onRegWrite(addr, val) {
+    const key = hexStr(addr);
+    const cell = document.getElementById(`reg-${key}`);
+    const rv   = document.getElementById(`rv-${key}`);
+    if(rv) { rv.textContent = hexStr(val); }
+    if(cell) {
+      cell.classList.add('active');
+      clearTimeout(cell._t);
+      cell._t = setTimeout(() => cell.classList.remove('active'), 300);
+    }
+    // Log (limit)
+    if(this.logLines.length < 3000) {
+      this.logLines.push({addr,val});
+      if(this.logLines.length % 8 === 0) this._flushLog();
+    }
+  }
+
+  _flushLog() {
+    const la = document.getElementById('logArea');
+    const line = document.createElement('div');
+    const last = this.logLines[this.logLines.length-1];
+    line.className = 'log-line write';
+    line.textContent = `WR [${hexStr(last.addr)}] = ${hexStr(last.val)}`;
+    la.appendChild(line);
+    if(la.children.length > 200) la.removeChild(la.firstChild);
+    la.scrollTop = la.scrollHeight;
+  }
+
+  log(msg, type='info') {
+    const la = document.getElementById('logArea');
+    const line = document.createElement('div');
+    line.className = `log-line ${type}`;
+    const ts = new Date().toISOString().substr(11,8);
+    line.textContent = `[${ts}] ${msg}`;
+    la.appendChild(line);
+    la.scrollTop = la.scrollHeight;
+  }
+
+  _formatTime(s) {
+    const m = Math.floor(s/60); const sec = Math.floor(s%60);
+    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+
+  _seekTo(frac) {
+    if(!this.player || !this.player.vgm) return;
+    // Re-parse and fast-forward (no audio)
+    this.log('SEEK NOT FULLY SUPPORTED - RESET', 'warn');
+  }
+
+  // ── VISUALIZATION ──
+  _startViz() {
+    const wc = document.getElementById('vizCanvas');
+    const sc = document.getElementById('specCanvas');
+    wc.width = wc.offsetWidth * devicePixelRatio;
+    wc.height = wc.offsetHeight * devicePixelRatio;
+    sc.width = sc.offsetWidth * devicePixelRatio;
+    sc.height = sc.offsetHeight * devicePixelRatio;
+    this.vizCtx = wc.getContext('2d');
+    this.specCtx = sc.getContext('2d');
+
+    const tick = () => {
+      this._drawWaveform();
+      this._drawSpectrum();
+      this._updateChannels();
+      this._updateStatus();
+      this._updateOpDetail();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  _drawWaveform() {
+    const ctx = this.vizCtx;
+    const w = ctx.canvas.width, h = ctx.canvas.height;
+    ctx.fillStyle = '#0f0f1a';
+    ctx.fillRect(0,0,w,h);
+
+    const data = this.ae.getTimeDomain();
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = '#00ff88';
+    ctx.beginPath();
+    const step = data.length / w;
+    for(let x=0;x<w;x++) {
+      const v = data[Math.floor(x*step)] / 128 - 1;
+      const y = (v * h/2) + h/2;
+      x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Center line
+    ctx.strokeStyle = 'rgba(0,255,136,0.15)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
+  }
+
+  _drawSpectrum() {
+    const ctx = this.specCtx;
+    const w = ctx.canvas.width, h = ctx.canvas.height;
+    ctx.fillStyle = '#0f0f1a';
+    ctx.fillRect(0,0,w,h);
+
+    const data = this.ae.getFreqDomain();
+    const bins = Math.min(data.length, 256);
+    const bw = w / bins;
+    for(let i=0;i<bins;i++) {
+      const v = data[i] / 255;
+      const bh = v * h;
+      const hue = 120 - v * 60;
+      ctx.fillStyle = `hsl(${hue},100%,50%)`;
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = `hsl(${hue},100%,50%)`;
+      ctx.fillRect(i*bw, h-bh, bw*0.8, bh);
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  _updateChannels() {
+    if(!this.player || !this.player.emu) return;
+    const emu = this.player.emu;
+
+    for(let ch=0;ch<3;ch++) {
+      const info = emu.getChInfo(ch);
+      const row = document.getElementById(`ch-fm${ch}`);
+      const bar = row.querySelector('.ch-bar');
+      const noteEl = document.getElementById(`note-fm${ch}`);
+      const volEl  = document.getElementById(`vol-fm${ch}`);
+      bar.style.width = `${Math.min(100, info.vol*100)}%`;
+      noteEl.textContent = info.note;
+      volEl.textContent = `${Math.round(info.vol*100)}%`;
+      row.classList.toggle('active', emu.fm[ch].keyOn);
+      for(let s=0;s<4;s++) {
+        const dot = document.getElementById(`op${ch}-${s}`);
+        if(dot) dot.classList.toggle('on', info.opOn[s]);
+      }
+    }
+
+    for(let ch=0;ch<3;ch++) {
+      const info = emu.getSsgInfo(ch);
+      const row = document.getElementById(`ch-ssg${ch}`);
+      const bar = row.querySelector('.ch-bar');
+      const noteEl = document.getElementById(`note-ssg${ch}`);
+      const volEl  = document.getElementById(`vol-ssg${ch}`);
+      bar.style.width = `${Math.min(100, info.vol*100)}%`;
+      noteEl.textContent = info.note;
+      volEl.textContent = `${Math.round(info.vol*100)}%`;
+      row.classList.toggle('active', info.active);
+      const dot = document.getElementById(`ssg${ch}-dot`);
+      if(dot) dot.classList.toggle('on', info.active);
+    }
+  }
+
+  _updateOpDetail() {
+    if(!this.player || !this.player.emu) return;
+    const ch = this._selOpCh || 0;
+    const ops = this.player.emu.fm[ch].ops;
+    for(let s=0;s<4;s++) {
+      const op = ops[s];
+      const set = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+      set(`op-tl-${s}`, op.tl);
+      set(`op-ar-${s}`, op.ar);
+      set(`op-dr-${s}`, op.dr);
+      set(`op-sr-${s}`, op.sr);
+      set(`op-rr-${s}`, op.rr);
+      set(`op-sl-${s}`, op.sl);
+      set(`op-ml-${s}`, op.ml||1);
+      set(`op-dt-${s}`, op.dt||0);
+      set(`op-env-${s}`, (op.envPhase||'off').toUpperCase());
+      const panel = document.getElementById(`opanel-${s}`);
+      if(panel) panel.classList.toggle('active', op.envPhase==='attack'||op.envPhase==='decay'||op.envPhase==='sustain');
+    }
+  }
+
+  _updateStatus() {
+    if(!this.player) return;
+    const pos = this.player.getPosition();
+    const dur = this.player.getDuration() || 1;
+    const pct = Math.min(100, (pos/dur)*100);
+    document.getElementById('progressFill').style.width = `${pct}%`;
+    document.getElementById('timeDisp').textContent = this._formatTime(pos);
+    document.getElementById('statusSample').textContent = this.player.sample.toLocaleString();
+    document.getElementById('statusLoop').textContent = this.player.loopCount;
+
+    // Commands per second
+    const now = performance.now();
+    this._lastCps = this._lastCps || now;
+    this._cmdAcc = (this._cmdAcc||0) + (this.player._cmdCount - (this._lastCmdCount||0));
+    this._lastCmdCount = this.player._cmdCount;
+    if(now - this._lastCps >= 500) {
+      document.getElementById('statusCps').textContent = Math.round(this._cmdAcc * 2);
+      this._cmdAcc = 0;
+      this._lastCps = now;
+    }
+  }
+}
+
+// ─── BOOTSTRAP ─────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  window._ui = new UI();
+});
+</script>
+</body>
+</html>
