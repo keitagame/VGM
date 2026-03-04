@@ -1139,6 +1139,7 @@ class YM2203Emu {
 
     this.outL = Math.max(-1, Math.min(1, outL * 0.05 + ssgOut * 0.25));
     this.outR = Math.max(-1, Math.min(1, outR * 0.05 + ssgOut * 0.25));
+   
   }
 
   _egTick() {
@@ -1213,20 +1214,15 @@ class YM2203Emu {
     // opSin: compute sin output of an operator with phase modulation
     // mod = phase offset in 20-bit units
     // Returns amplitude-weighted sin, range ≈ ±1
-    const opSin = (op, mod) => {
+   const opSin = (op, mod) => {
   const att = Math.min(1023, op.egLevel + (op.tl << 2));
   if(att >= 832) return 0;
 
-  const amp = 1.0;
+  // ここが超重要
+  const phase = (op.phase + mod) & 0xFFFFF;
+  const idx = (phase >>> 10) & 1023;
 
-  // まずテーブルインデックスを出す
-  let idx = (op.phase >>> 10);
-
-  // 変調は「インデックス単位」で加える
-  idx += mod;           // ← ここ重要
-  idx &= 1023;          // wrap
-
-  return sin[idx] * amp;
+  return sin[idx];
 };
 
     // Feedback: OP1 self-modulates using average of last two outputs
@@ -1235,7 +1231,7 @@ let fb = 0;
 if(c.feedback > 0) {
   const fbAvg = (c.fbBuf[0] + c.fbBuf[1]) * 0.5;
   //fb = fbAvg * (1 << c.feedback);  // ← これだけでいい
-fb = fbAvg * (c.feedback * 2);
+fb = fbAvg * (c.feedback * 2.5);
 }
     const op1out = opSin(ops[0], fb);
     c.fbBuf[0] = c.fbBuf[1];
@@ -1244,8 +1240,8 @@ fb = fbAvg * (c.feedback * 2);
     // Modulation scale: op output (±1) → phase offset in 20-bit units
     // Standard OPN: max mod = ±1 full cycle when mod_depth = 1.0
     // We use PM/8 as the scale so that strong modulation sweeps half cycle
-    const S = 200; // scale factor for modulation
-
+    //const S = 125; // scale factor for modulation
+const S = 1 << 18;  // 262144
     let o1=op1out, o2, o3, o4, result;
     switch(c.algorithm) {
       case 0: // 1→2→3→4
