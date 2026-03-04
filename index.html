@@ -20,8 +20,8 @@
     --dim: #1a3a2a;
     --text: #b0ffd0;
     --text2: #7aaabb;
-    --glow: 0 0 8px #00ff88, 0 0 20px #00ff8844;
-    --glow2: 0 0 8px #00ccff, 0 0 20px #00ccff44;
+    --glow: 0 0 0px #00ff88, 0 0 0px #00ff8844;
+    --glow2: 0 0 0px #00ccff, 0 0 0px #00ccff44;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1213,21 +1213,28 @@ class YM2203Emu {
     // mod = phase offset in 20-bit units
     // Returns amplitude-weighted sin, range ≈ ±1
     const opSin = (op, mod) => {
-      // TL: each step = 0.75dB = 4 EG-level units
-      const att = Math.min(1023, op.egLevel + (op.tl << 2));
-      if(att >= 832) return 0;       // fully silent
-      const amp   = 1.0;//e2a[att];
-      const ph    = ((op.phase + (mod|0)) >>> 10) & 0x3FF; // top 10 bits
-      return sin[ph] * amp;
-    };
+  const att = Math.min(1023, op.egLevel + (op.tl << 2));
+  if(att >= 832) return 0;
+
+  const amp = 1.0;
+
+  // まずテーブルインデックスを出す
+  let idx = (op.phase >>> 10);
+
+  // 変調は「インデックス単位」で加える
+  idx += mod;           // ← ここ重要
+  idx &= 1023;          // wrap
+
+  return sin[idx] * amp;
+};
 
     // Feedback: OP1 self-modulates using average of last two outputs
     // Scale: feedback=0 → no mod, feedback=7 → mod ≈ ±256 (in PM units)
-    let fb = 0;
-    if(c.feedback > 0) {
-      const fbAvg = (c.fbBuf[0] + c.fbBuf[1]) * 0.5;
-      fb = fbAvg * (PM >> (9 - c.feedback)); // 2^(fb-1) / pi ≈ shift
-    }
+let fb = 0;
+if(c.feedback > 0) {
+  const fbAvg = (c.fbBuf[0] + c.fbBuf[1]) * 0.5;
+  fb = fbAvg * (1 << c.feedback);  // ← これだけでいい
+}
     const op1out = opSin(ops[0], fb);
     c.fbBuf[0] = c.fbBuf[1];
     c.fbBuf[1] = op1out;
@@ -1235,7 +1242,7 @@ class YM2203Emu {
     // Modulation scale: op output (±1) → phase offset in 20-bit units
     // Standard OPN: max mod = ±1 full cycle when mod_depth = 1.0
     // We use PM/8 as the scale so that strong modulation sweeps half cycle
-    const S = 0;//PM >> 10; // scale factor for modulation
+    const S = 256;//PM >> 4; // scale factor for modulation
 
     let o1=op1out, o2, o3, o4, result;
     switch(c.algorithm) {
