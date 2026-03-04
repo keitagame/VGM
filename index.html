@@ -1136,8 +1136,8 @@ class YM2203Emu {
     while(this.ssgAcc >= 1) { this.ssgAcc -= 1; this._ssgTick(); }
     let ssgOut = this._ssgMix();
 
-    this.outL = Math.max(-1, Math.min(1, outL * 0.3 + ssgOut * 0.25));
-    this.outR = Math.max(-1, Math.min(1, outR * 0.3 + ssgOut * 0.25));
+    this.outL = Math.max(-1, Math.min(1, outL * 0.05 + ssgOut * 0.25));
+    this.outR = Math.max(-1, Math.min(1, outR * 0.05 + ssgOut * 0.25));
   }
 
   _egTick() {
@@ -1242,7 +1242,7 @@ if(c.feedback > 0) {
     // Modulation scale: op output (±1) → phase offset in 20-bit units
     // Standard OPN: max mod = ±1 full cycle when mod_depth = 1.0
     // We use PM/8 as the scale so that strong modulation sweeps half cycle
-    const S = 256;//PM >> 4; // scale factor for modulation
+    const S = 200; // scale factor for modulation
 
     let o1=op1out, o2, o3, o4, result;
     switch(c.algorithm) {
