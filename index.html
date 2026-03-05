@@ -647,8 +647,8 @@
         </div>
         <div class="chip-sel" id="chipSel">
           <div class="ctab active" data-chip="ym2203">YM2203</div>
-          <div class="ctab disabled" data-chip="ym2612">YM2612</div>
-          <div class="ctab disabled" data-chip="ym2151">YM2151</div>
+          <div class="ctab" data-chip="ym2612">YM2612</div>
+          <div class="ctab" data-chip="ym2151">YM2151</div>
           <div class="ctab disabled" data-chip="sn76489">SN76489</div>
           <div class="ctab disabled" data-chip="ay8910">AY-8910</div>
         </div>
@@ -1387,7 +1387,555 @@ function _hzNote(hz) {
   return N[((n%12)+12)%12] + (Math.floor(n/12)-1);
 }
 
+// ─── YM2612 (OPN2) EMULATOR ───────────────────────────────────
+// FM: 6ch × 4op, no SSG, DAC channel 6
+class YM2612Emu {
+  constructor(clock, sampleRate) {
+    this.clock = clock || 7670453;
+    this.sr    = sampleRate;
 
+    this.SIN = new Float32Array(1024);
+    for(let i=0;i<1024;i++) this.SIN[i] = Math.sin(2*Math.PI*i/1024);
+
+    this.EG2AMP = new Float32Array(1024);
+    for(let i=0;i<1024;i++) this.EG2AMP[i] = Math.pow(2, -i/128);
+
+    this.EG_INC = [
+      [0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],
+      [0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1],
+      [0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1],
+      [0,1,1,1,0,1,1,1],[0,1,1,1,0,1,1,1],
+      [0,1,0,1,0,1,0,1],[0,1,0,1,1,1,0,1],
+      [0,1,1,1,0,1,1,1],[0,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1],[1,1,1,2,1,1,1,2],
+      [1,2,1,2,1,2,1,2],[2,2,2,2,2,2,2,2],
+    ];
+    this.SLOT_ORDER = [0,2,1,3];
+
+    // 6 FM channels (ports A/B × 3)
+    this.fm = Array.from({length:6}, () => ({
+      fnum:0, block:0, keycode:0,
+      keyOn:false, algorithm:0, feedback:0, pan:3,
+      fbBuf: new Float32Array(2),
+      ops: Array.from({length:4}, () => this._newOp()),
+    }));
+
+    // DAC
+    this.dacEnabled = false;
+    this.dacSample  = 0;
+
+    // LFO
+    this.lfoEnabled = false;
+    this.lfoFreq    = 0;
+    this.lfoPhase   = 0;
+
+    this.egTicksPerSample = this.clock / 144 / 3 / this.sr;
+    this.egAcc = 0; this.egCounter = 0;
+    this.outL = 0; this.outR = 0;
+  }
+
+  _newOp() {
+    return {
+      mul:1, dt1:0, dt2:0,
+      tl:127, ks:0, ar:0, dr:0, sr:0, rr:15, sl:0, slLevel:0,
+      phase:0, phaseInc:0,
+      egPhase:'off', egLevel:1023,
+      rateAR:0, rateDR:0, rateSR:0, rateRR:63,
+    };
+  }
+
+  // addr: 0=port A (ch0-2), 1=port B (ch3-5)
+  write(port, addr, val) {
+    const chOff = port ? 3 : 0;
+
+    if(addr === 0x22) { // LFO
+      this.lfoEnabled = !!(val&8);
+      this.lfoFreq = val&7;
+      return;
+    }
+    if(addr === 0x27) return; // CH3 special mode (skip)
+    if(addr === 0x28) { // Key ON/OFF
+      const ch = (val&3) + ((val&4) ? 3 : 0);
+      if((val&3) === 3) return; // invalid
+      this._keyOn(ch, (val>>4)&0xF);
+      return;
+    }
+    if(addr === 0x2A) { this.dacSample = val; return; }
+    if(addr === 0x2B) { this.dacEnabled = !!(val&0x80); return; }
+
+    // Operator regs 0x30-0x9F
+    if(addr >= 0x30 && addr <= 0x9F) {
+      const ch   = (addr&3); if(ch >= 3) return;
+      const slot = (addr>>2)&3;
+      const op   = this.fm[ch+chOff].ops[this.SLOT_ORDER[slot]];
+      switch(addr&0xF0) {
+        case 0x30: op.dt1=(val>>4)&7; op.mul=(val&0xF)||1; this._calcPhaseInc(ch+chOff); return;
+        case 0x40: op.tl=val&0x7F; return;
+        case 0x50: op.ks=(val>>6)&3; op.ar=val&0x1F; this._calcRates(this.fm[ch+chOff],op); return;
+        case 0x60: op.dr=val&0x1F; this._calcRates(this.fm[ch+chOff],op); return;
+        case 0x70: op.sr=val&0x1F; this._calcRates(this.fm[ch+chOff],op); return;
+        case 0x80: op.sl=(val>>4)&0xF; op.rr=val&0xF; op.slLevel=(op.sl===15)?1023:op.sl<<5; this._calcRates(this.fm[ch+chOff],op); return;
+        case 0x90: op.dt2=val&3; return; // SSG-EG (simplified)
+      }
+      return;
+    }
+
+    // Freq
+    if(addr >= 0xA4 && addr <= 0xA6) {
+      const ch = (addr-0xA4)+chOff;
+      this._hiFreq = val; return;
+    }
+    if(addr >= 0xA0 && addr <= 0xA2) {
+      const ch = (addr-0xA0)+chOff;
+      const hi = this._hiFreq || 0;
+      this.fm[ch].fnum  = val|((hi&7)<<8);
+      this.fm[ch].block = (hi>>3)&7;
+      this._calcPhaseInc(ch); return;
+    }
+    if(addr >= 0xB0 && addr <= 0xB2) {
+      const ch = (addr-0xB0)+chOff;
+      this.fm[ch].algorithm=val&7; this.fm[ch].feedback=(val>>3)&7; return;
+    }
+    if(addr >= 0xB4 && addr <= 0xB6) {
+      const ch = (addr-0xB4)+chOff;
+      this.fm[ch].pan=(val>>6)&3; return;
+    }
+  }
+
+  _calcPhaseInc(ch) {
+    const c = this.fm[ch];
+    const base = c.fnum*(1<<c.block)*this.clock/(144*this.sr);
+    for(const op of c.ops) op.phaseInc = base*op.mul;
+    c.keycode = (c.block<<2)|((c.fnum>>7)&3);
+    for(const op of c.ops) this._calcRates(c,op);
+  }
+
+  _calcRates(ch,op) {
+    const kc = ch.keycode||0;
+    const ks = op.ks?(kc>>1):(kc>>2);
+    const clamp = r=>Math.min(63,Math.max(0,r));
+    op.rateAR = op.ar?clamp((op.ar<<1)+ks):0;
+    op.rateDR = op.dr?clamp((op.dr<<1)+ks):0;
+    op.rateSR = op.sr?clamp((op.sr<<1)+ks):0;
+    op.rateRR = clamp((op.rr<<2)+2+ks);
+  }
+
+  _keyOn(ch,slotMask) {
+    if(ch>=6) return;
+    const c = this.fm[ch];
+    c.keyOn = slotMask!==0;
+    for(let s=0;s<4;s++) {
+      const op = c.ops[this.SLOT_ORDER[s]];
+      if(slotMask&(1<<s)) {
+        op.phase=0; op.egPhase='attack'; op.egLevel=1023;
+        if(s===0){c.fbBuf[0]=0;c.fbBuf[1]=0;}
+      } else {
+        if(op.egPhase!=='off') op.egPhase='release';
+      }
+    }
+  }
+
+  tick() {
+    this.egAcc += this.egTicksPerSample;
+    while(this.egAcc>=1){this.egAcc-=1;this._egTick();}
+    let outL=0, outR=0;
+    for(let ch=0;ch<6;ch++) {
+      // ch5 = DAC when enabled
+      let out;
+      if(ch===5&&this.dacEnabled) {
+        out = (this.dacSample-128)/128*0.5;
+      } else {
+        out = this._fmCalc(ch);
+      }
+      if(this.fm[ch].pan&2) outL+=out;
+      if(this.fm[ch].pan&1) outR+=out;
+    }
+    this.outL = Math.max(-1,Math.min(1,outL*0.04));
+    this.outR = Math.max(-1,Math.min(1,outR*0.04));
+  }
+
+  _egTick() {
+    this.egCounter=(this.egCounter+1)&0xFFF;
+    for(let ch=0;ch<6;ch++) {
+      for(const op of this.fm[ch].ops) {
+        if(op.egPhase==='off') continue;
+        let rate,inc;
+        switch(op.egPhase) {
+          case 'attack':
+            rate=op.rateAR; if(!rate) break;
+            if(rate>=62){op.egLevel=0;op.egPhase='decay';break;}
+            inc=this._egInc(rate);
+            if(inc){op.egLevel+=(~op.egLevel*inc)>>4;if(op.egLevel<=0){op.egLevel=0;op.egPhase='decay';}}
+            break;
+          case 'decay':
+            inc=this._egInc(op.rateDR);
+            op.egLevel=Math.min(1023,op.egLevel+inc);
+            if(op.egLevel>=op.slLevel){op.egLevel=op.slLevel;op.egPhase='sustain';}
+            break;
+          case 'sustain':
+            inc=this._egInc(op.rateSR);
+            op.egLevel=Math.min(1023,op.egLevel+inc);
+            if(op.egLevel>=1023){op.egLevel=1023;op.egPhase='off';}
+            break;
+          case 'release':
+            inc=this._egInc(op.rateRR);
+            op.egLevel=Math.min(1023,op.egLevel+inc);
+            if(op.egLevel>=1023){op.egLevel=1023;op.egPhase='off';}
+            break;
+        }
+      }
+    }
+  }
+
+  _egInc(rate) {
+    if(rate<=0) return 0;
+    const shift=Math.max(0,11-(rate>>2));
+    const row=Math.min(15,rate>>2);
+    const phase=(this.egCounter>>shift)&7;
+    return this.EG_INC[row][phase];
+  }
+
+  _fmCalc(ch) {
+    const c=this.fm[ch],ops=c.ops,sin=this.SIN,e2a=this.EG2AMP;
+    for(const op of ops) op.phase=(op.phase+op.phaseInc)&0xFFFFF;
+    const opSin=(op,mod)=>{
+      const att=Math.min(1023,op.egLevel+(op.tl<<1));
+      if(att>=832) return 0;
+      const phase=(op.phase+mod)&0xFFFFF;
+      return sin[(phase>>>10)&1023]*e2a[att];
+    };
+    let fb=0;
+    if(c.feedback>0){const fbAvg=(c.fbBuf[0]+c.fbBuf[1])*0.5;fb=fbAvg*(c.feedback*2.5);}
+    const op1out=opSin(ops[0],fb);
+    c.fbBuf[0]=c.fbBuf[1]; c.fbBuf[1]=op1out;
+    const S=624288;
+    let o1=op1out,o2,o3,o4,result;
+    switch(c.algorithm) {
+      case 0: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],o2*S);o4=opSin(ops[3],o3*S);result=o4;break;
+      case 1: o2=opSin(ops[1],0);o3=opSin(ops[2],(o1+o2)*S);o4=opSin(ops[3],o3*S);result=o4;break;
+      case 2: o2=opSin(ops[1],0);o3=opSin(ops[2],o2*S);o4=opSin(ops[3],(o1+o3)*S);result=o4;break;
+      case 3: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],0);o4=opSin(ops[3],(o2+o3)*S);result=o4;break;
+      case 4: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],0);o4=opSin(ops[3],o3*S);result=o2+o4;break;
+      case 5: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],o1*S);o4=opSin(ops[3],o1*S);result=o2+o3+o4;break;
+      case 6: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],0);o4=opSin(ops[3],0);result=o2+o3+o4;break;
+      case 7: o2=opSin(ops[1],0);o3=opSin(ops[2],0);o4=opSin(ops[3],0);result=o1+o2+o3+o4;break;
+      default: result=0;
+    }
+    return result;
+  }
+
+  // UI helpers
+  getChInfo(ch) {
+    const c=this.fm[ch];
+    const note=this._fnumNote(c.fnum,c.block);
+    const opOn=c.ops.map(o=>o.egPhase!=='off');
+    const CARRIERS=[[3],[3],[3],[3],[1,3],[1,2,3],[1,2,3],[0,1,2,3]];
+    const cars=CARRIERS[c.algorithm]||[3];
+    let vol=0;
+    for(const i of cars){const op=c.ops[i];const att=Math.min(1023,op.egLevel+(op.tl<<1));vol+=this.EG2AMP[att];}
+    return {note,vol:vol/cars.length,opOn,algorithm:c.algorithm,feedback:c.feedback};
+  }
+  _fnumNote(fnum,block) {
+    if(!fnum) return '---';
+    const hz=this.clock*fnum*Math.pow(2,block)/(144*2048);
+    return _hzNote(hz);
+  }
+}
+
+// ─── YM2151 (OPM) EMULATOR ────────────────────────────────────
+// FM: 8ch × 4op, built-in LFO, noise generator
+// Key difference from OPN: uses KC/KF (key code/fraction) for pitch
+class YM2151Emu {
+  constructor(clock, sampleRate) {
+    this.clock = clock || 3579545;
+    this.sr    = sampleRate;
+
+    this.SIN = new Float32Array(1024);
+    for(let i=0;i<1024;i++) this.SIN[i] = Math.sin(2*Math.PI*i/1024);
+    this.EG2AMP = new Float32Array(1024);
+    for(let i=0;i<1024;i++) this.EG2AMP[i] = Math.pow(2,-i/128);
+    this.EG_INC = [
+      [0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0],
+      [0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1],
+      [0,1,0,1,0,1,0,1],[0,1,0,1,0,1,0,1],
+      [0,1,1,1,0,1,1,1],[0,1,1,1,0,1,1,1],
+      [0,1,0,1,0,1,0,1],[0,1,0,1,1,1,0,1],
+      [0,1,1,1,0,1,1,1],[0,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1],[1,1,1,2,1,1,1,2],
+      [1,2,1,2,1,2,1,2],[2,2,2,2,2,2,2,2],
+    ];
+    this.SLOT_ORDER=[0,2,1,3];
+
+    // OPM KC note table: 12 notes per octave (C#=0, D=1 ... C=11 in OPM notation)
+    // KC = (octave<<4) | note_idx  where note_idx maps to semitone
+    // OPM note indices: 0,1,2,4,5,6,8,9,10,12,13,14 → 12 valid notes
+    this.KC_TO_HZ = (() => {
+      // OPM uses KC = oct*16 + note (note has gaps: 0-2,4-6,8-10,12-14 = valid)
+      const valid = [0,1,2,4,5,6,8,9,10,12,13,14];
+      const table = new Float32Array(128);
+      for(let oct=0;oct<8;oct++) {
+        for(let ni=0;ni<12;ni++) {
+          const kc = (oct<<4)|valid[ni];
+          // semitone: oct*12+ni, A4(oct=5,ni=9) = 440Hz
+          const semi = oct*12+ni - (5*12+9);
+          table[kc] = 440*Math.pow(2,semi/12);
+        }
+      }
+      return table;
+    })();
+
+    this.fm = Array.from({length:8}, ()=>({
+      kc:0, kf:0, keycode:0,
+      keyOn:false, algorithm:0, feedback:0, pan:3,
+      fbBuf: new Float32Array(2),
+      ops: Array.from({length:4}, ()=>this._newOp()),
+    }));
+
+    // Noise
+    this.noiseEnabled=false; this.noiseFreq=0;
+    this.noiseLfsr=0x1FFFF; this.noisePhase=0; this.noisePeriod=1;
+
+    this.egTicksPerSample=this.clock/64/3/this.sr;
+    this.egAcc=0; this.egCounter=0;
+    this.outL=0; this.outR=0;
+  }
+
+  _newOp() {
+    return {
+      mul:1, dt1:0, dt2:0,
+      tl:127, ks:0, ar:0, dr:0, sr:0, rr:15, sl:0, slLevel:0,
+      phase:0, phaseInc:0,
+      egPhase:'off', egLevel:1023,
+      rateAR:0,rateDR:0,rateSR:0,rateRR:63,
+    };
+  }
+
+  write(addr, val) {
+    if(addr===0x08) { // Key ON/OFF — bit layout differs from OPN!
+      const ch=val&7;
+      const slotMask=(val>>3)&0xF;
+      this._keyOn(ch,slotMask); return;
+    }
+    if(addr===0x0F) { // Noise control
+      this.noiseEnabled=!!(val&0x80);
+      this.noiseFreq=val&0x1F;
+      this.noisePeriod=Math.max(1,32-this.noiseFreq);
+      return;
+    }
+    // 0x10-0x1F: unused / timer
+    if(addr>=0x20&&addr<=0x27) { // Pan + Algorithm + Feedback
+      const ch=addr-0x20;
+      this.fm[ch].pan=(val>>6)&3;
+      this.fm[ch].feedback=(val>>3)&7;
+      this.fm[ch].algorithm=val&7; return;
+    }
+    if(addr>=0x28&&addr<=0x2F) { // Key Code (KC)
+      const ch=addr-0x28;
+      this.fm[ch].kc=val;
+      this._calcPhaseInc(ch); return;
+    }
+    if(addr>=0x30&&addr<=0x37) { // Key Fraction (KF)
+      const ch=addr-0x30;
+      this.fm[ch].kf=(val>>2)&0x3F;
+      this._calcPhaseInc(ch); return;
+    }
+    // Operator regs 0x40-0xFF: grouped by slot then channel
+    // addr = base + (slot*8) + ch,  slot=0(M1),1(M2),2(C1),3(C2)
+    if(addr>=0x40&&addr<=0x57) { // DT1/MUL
+      const slot=(addr-0x40)>>3, ch=(addr-0x40)&7;
+      const op=this.fm[ch].ops[this.SLOT_ORDER[slot]];
+      op.dt1=(val>>4)&7; op.mul=(val&0xF)||1;
+      this._calcPhaseInc(ch); return;
+    }
+    if(addr>=0x60&&addr<=0x77) { // TL
+      const slot=(addr-0x60)>>3, ch=(addr-0x60)&7;
+      this.fm[ch].ops[this.SLOT_ORDER[slot]].tl=val&0x7F; return;
+    }
+    if(addr>=0x80&&addr<=0x97) { // KS/AR
+      const slot=(addr-0x80)>>3, ch=(addr-0x80)&7;
+      const op=this.fm[ch].ops[this.SLOT_ORDER[slot]];
+      op.ks=(val>>6)&3; op.ar=val&0x1F;
+      this._calcRates(this.fm[ch],op); return;
+    }
+    if(addr>=0xA0&&addr<=0xB7) { // AM enable / DR (D1R)
+      const slot=(addr-0xA0)>>3, ch=(addr-0xA0)&7;
+      const op=this.fm[ch].ops[this.SLOT_ORDER[slot]];
+      op.dr=val&0x1F;
+      this._calcRates(this.fm[ch],op); return;
+    }
+    if(addr>=0xC0&&addr<=0xD7) { // DT2/SR (D2R)
+      const slot=(addr-0xC0)>>3, ch=(addr-0xC0)&7;
+      const op=this.fm[ch].ops[this.SLOT_ORDER[slot]];
+      op.dt2=(val>>6)&3; op.sr=val&0x1F;
+      this._calcRates(this.fm[ch],op); return;
+    }
+    if(addr>=0xE0&&addr<=0xFF) { // D1L/RR
+      const slot=(addr-0xE0)>>3, ch=(addr-0xE0)&7;
+      const op=this.fm[ch].ops[this.SLOT_ORDER[slot]];
+      op.sl=(val>>4)&0xF; op.rr=val&0xF;
+      op.slLevel=(op.sl===15)?1023:op.sl<<5;
+      this._calcRates(this.fm[ch],op); return;
+    }
+  }
+
+  _calcPhaseInc(ch) {
+    const c=this.fm[ch];
+    // OPM uses KC/KF for pitch
+    // KC: bits[6:4]=octave, bits[3:0]=note (with gaps)
+    const oct=(c.kc>>4)&7;
+    const noteIdx=c.kc&0xF;
+    // Map note index to semitone (OPM valid notes: 0,1,2,4,5,6,8,9,10,12,13,14)
+    const NOTE_MAP=[0,1,2,-1,3,4,5,-1,6,7,8,-1,9,10,11,-1];
+    const semi=oct*12+(NOTE_MAP[noteIdx]||0);
+    const baseHz=440*Math.pow(2,(semi-(5*12+9))/12);
+    // KF adds fine-tuning: 0-63 = 0..1 semitone
+    const kfHz=baseHz*Math.pow(2,c.kf/(64*12));
+    const phaseInc=kfHz*(1<<20)/this.sr;
+    for(const op of c.ops) op.phaseInc=phaseInc*op.mul;
+    c.keycode=(oct<<2)|(noteIdx>>2);
+    for(const op of c.ops) this._calcRates(c,op);
+  }
+
+  _calcRates(ch,op) {
+    const kc=ch.keycode||0;
+    const ks=op.ks?(kc>>1):(kc>>2);
+    const clamp=r=>Math.min(63,Math.max(0,r));
+    op.rateAR=op.ar?clamp((op.ar<<1)+ks):0;
+    op.rateDR=op.dr?clamp((op.dr<<1)+ks):0;
+    op.rateSR=op.sr?clamp((op.sr<<1)+ks):0;
+    op.rateRR=clamp((op.rr<<2)+2+ks);
+  }
+
+  _keyOn(ch,slotMask) {
+    if(ch>=8) return;
+    const c=this.fm[ch];
+    c.keyOn=slotMask!==0;
+    for(let s=0;s<4;s++) {
+      const op=c.ops[this.SLOT_ORDER[s]];
+      if(slotMask&(1<<s)){
+        op.phase=0;op.egPhase='attack';op.egLevel=1023;
+        if(s===0){c.fbBuf[0]=0;c.fbBuf[1]=0;}
+      } else {
+        if(op.egPhase!=='off') op.egPhase='release';
+      }
+    }
+  }
+
+  tick() {
+    this.egAcc+=this.egTicksPerSample;
+    while(this.egAcc>=1){this.egAcc-=1;this._egTick();}
+    // Noise tick
+    if(this.noiseEnabled){
+      if(++this.noisePhase>=this.noisePeriod){
+        this.noisePhase=0;
+        const bit=(this.noiseLfsr^(this.noiseLfsr>>3))&1;
+        this.noiseLfsr=((this.noiseLfsr>>1)|(bit<<16))&0x1FFFF;
+      }
+    }
+    let outL=0,outR=0;
+    for(let ch=0;ch<8;ch++){
+      const out=this._fmCalc(ch);
+      if(this.fm[ch].pan&2) outL+=out;
+      if(this.fm[ch].pan&1) outR+=out;
+    }
+    this.outL=Math.max(-1,Math.min(1,outL*0.03));
+    this.outR=Math.max(-1,Math.min(1,outR*0.03));
+  }
+
+  _egTick() {
+    this.egCounter=(this.egCounter+1)&0xFFF;
+    for(let ch=0;ch<8;ch++){
+      for(const op of this.fm[ch].ops){
+        if(op.egPhase==='off') continue;
+        let inc;
+        switch(op.egPhase){
+          case 'attack':
+            if(!op.rateAR) break;
+            if(op.rateAR>=62){op.egLevel=0;op.egPhase='decay';break;}
+            inc=this._egInc(op.rateAR);
+            if(inc){op.egLevel+=(~op.egLevel*inc)>>4;if(op.egLevel<=0){op.egLevel=0;op.egPhase='decay';}}
+            break;
+          case 'decay':
+            inc=this._egInc(op.rateDR);
+            op.egLevel=Math.min(1023,op.egLevel+inc);
+            if(op.egLevel>=op.slLevel){op.egLevel=op.slLevel;op.egPhase='sustain';}
+            break;
+          case 'sustain':
+            inc=this._egInc(op.rateSR);
+            op.egLevel=Math.min(1023,op.egLevel+inc);
+            if(op.egLevel>=1023){op.egLevel=1023;op.egPhase='off';}
+            break;
+          case 'release':
+            inc=this._egInc(op.rateRR);
+            op.egLevel=Math.min(1023,op.egLevel+inc);
+            if(op.egLevel>=1023){op.egLevel=1023;op.egPhase='off';}
+            break;
+        }
+      }
+    }
+  }
+
+  _egInc(rate) {
+    if(rate<=0) return 0;
+    const shift=Math.max(0,11-(rate>>2));
+    const row=Math.min(15,rate>>2);
+    const phase=(this.egCounter>>shift)&7;
+    return this.EG_INC[row][phase];
+  }
+
+  _fmCalc(ch) {
+    const c=this.fm[ch],ops=c.ops,sin=this.SIN,e2a=this.EG2AMP;
+    for(const op of ops) op.phase=(op.phase+op.phaseInc)&0xFFFFF;
+    const noiseOut=(this.noiseEnabled&&ch===7)?(this.noiseLfsr&1?1:-1):0;
+    const opSin=(op,mod,useNoise=false)=>{
+      const att=Math.min(1023,op.egLevel+(op.tl<<1));
+      if(att>=832) return 0;
+      if(useNoise) return noiseOut*e2a[att];
+      const phase=(op.phase+mod)&0xFFFFF;
+      return sin[(phase>>>10)&1023]*e2a[att];
+    };
+    let fb=0;
+    if(c.feedback>0){const fbAvg=(c.fbBuf[0]+c.fbBuf[1])*0.5;fb=fbAvg*(c.feedback*2.5);}
+    const op1out=opSin(ops[0],fb);
+    c.fbBuf[0]=c.fbBuf[1]; c.fbBuf[1]=op1out;
+    const S=624288;
+    const useNoiseCh7=(this.noiseEnabled&&ch===7);
+    let o1=op1out,o2,o3,o4,result;
+    switch(c.algorithm){
+      case 0: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],o2*S);o4=opSin(ops[3],o3*S,useNoiseCh7);result=o4;break;
+      case 1: o2=opSin(ops[1],0);o3=opSin(ops[2],(o1+o2)*S);o4=opSin(ops[3],o3*S,useNoiseCh7);result=o4;break;
+      case 2: o2=opSin(ops[1],0);o3=opSin(ops[2],o2*S);o4=opSin(ops[3],(o1+o3)*S,useNoiseCh7);result=o4;break;
+      case 3: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],0);o4=opSin(ops[3],(o2+o3)*S,useNoiseCh7);result=o4;break;
+      case 4: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],0);o4=opSin(ops[3],o3*S,useNoiseCh7);result=o2+o4;break;
+      case 5: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],o1*S);o4=opSin(ops[3],o1*S,useNoiseCh7);result=o2+o3+o4;break;
+      case 6: o2=opSin(ops[1],o1*S);o3=opSin(ops[2],0);o4=opSin(ops[3],0,useNoiseCh7);result=o2+o3+o4;break;
+      case 7: o2=opSin(ops[1],0);o3=opSin(ops[2],0);o4=opSin(ops[3],0,useNoiseCh7);result=o1+o2+o3+o4;break;
+      default: result=0;
+    }
+    return result;
+  }
+
+  getChInfo(ch) {
+    const c=this.fm[ch];
+    const note=this._kcNote(c.kc);
+    const opOn=c.ops.map(o=>o.egPhase!=='off');
+    const CARRIERS=[[3],[3],[3],[3],[1,3],[1,2,3],[1,2,3],[0,1,2,3]];
+    const cars=CARRIERS[c.algorithm]||[3];
+    let vol=0;
+    for(const i of cars){const op=c.ops[i];const att=Math.min(1023,op.egLevel+(op.tl<<1));vol+=this.EG2AMP[att];}
+    return {note,vol:vol/cars.length,opOn,algorithm:c.algorithm,feedback:c.feedback};
+  }
+  _kcNote(kc) {
+    if(!kc) return '---';
+    const oct=(kc>>4)&7;
+    const noteIdx=kc&0xF;
+    const NOTE_MAP=[0,1,2,-1,3,4,5,-1,6,7,8,-1,9,10,11,-1];
+    const semi=NOTE_MAP[noteIdx];
+    if(semi<0) return '---';
+    const hz=440*Math.pow(2,(oct*12+semi-(5*12+9))/12);
+    return _hzNote(hz);
+  }
+}
 
 // ─── VGM PARSER ────────────────────────────────────────────
 class VgmParser {
@@ -1538,7 +2086,24 @@ class VgmPlayer {
     this.ae.player = this;
     this.reset();
   }
-
+load(vgm) {
+    this.vgm = vgm;
+    const h = vgm.header;
+    // Detect chip from header clocks
+    if(h.ym2612Clock) {
+      this.chipType = 'ym2612';
+      this.emu = new YM2612Emu(h.ym2612Clock, 44100);
+    } else if(h.ym2151Clock) {
+      this.chipType = 'ym2151';
+      this.emu = new YM2151Emu(h.ym2151Clock, 44100);
+    } else {
+      this.chipType = 'ym2203';
+      this.emu = new YM2203Emu(h.ym2203Clock || 3993600, 44100);
+    }
+    this.ae.emu = this.emu;
+    this.ae.player = this;
+    this.reset();
+  }
   reset() {
     if(!this.vgm) return;
     this.pc = this.vgm.header.vgmDataOffset || 0x40;
@@ -1610,6 +2175,27 @@ class VgmPlayer {
       case 0x55: { // YM2203 write
         const addr = d[this.pc++], val = d[this.pc++];
         this.emu.write(addr, val);
+        this._cmdCount++;
+        if(this.onWrite) this.onWrite(addr, val);
+        break;
+      }
+case 0x52: { // YM2612 port 0 write
+        const addr = d[this.pc++], val = d[this.pc++];
+        if(this.emu && this.chipType==='ym2612') this.emu.write(0, addr, val);
+        this._cmdCount++;
+        if(this.onWrite) this.onWrite(addr, val);
+        break;
+      }
+      case 0x53: { // YM2612 port 1 write
+        const addr = d[this.pc++], val = d[this.pc++];
+        if(this.emu && this.chipType==='ym2612') this.emu.write(1, addr, val);
+        this._cmdCount++;
+        if(this.onWrite) this.onWrite(addr, val);
+        break;
+      }
+      case 0x54: { // YM2151 write
+        const addr = d[this.pc++], val = d[this.pc++];
+        if(this.emu && this.chipType==='ym2151') this.emu.write(addr, val);
         this._cmdCount++;
         if(this.onWrite) this.onWrite(addr, val);
         break;
@@ -2254,7 +2840,79 @@ class UI {
       if(dot) dot.classList.toggle('on', info.active);
     }
   }
+_updateChannels() {
+    if(!this.player || !this.player.emu) return;
+    const emu = this.player.emu;
+    const chipType = this.player.chipType || 'ym2203';
 
+    if(chipType === 'ym2612') {
+      // 6ch FM, no SSG
+      for(let ch=0;ch<6;ch++) {
+        const info = emu.getChInfo(ch);
+        const row  = document.getElementById(`ch-fm${ch}`);
+        if(!row) continue;
+        const bar    = row.querySelector('.ch-bar');
+        const noteEl = document.getElementById(`note-fm${ch}`);
+        const volEl  = document.getElementById(`vol-fm${ch}`);
+        if(bar) bar.style.width = `${Math.min(100,info.vol*100)}%`;
+        if(noteEl) noteEl.textContent = info.note;
+        if(volEl)  volEl.textContent  = `${Math.round(info.vol*100)}%`;
+        row.classList.toggle('active', emu.fm[ch].keyOn);
+        for(let s=0;s<4;s++){
+          const dot=document.getElementById(`op${ch}-${s}`);
+          if(dot) dot.classList.toggle('on',info.opOn[s]);
+        }
+      }
+    } else if(chipType === 'ym2151') {
+      // 8ch FM
+      for(let ch=0;ch<8;ch++) {
+        const info = emu.getChInfo(ch);
+        const row  = document.getElementById(`ch-fm${ch}`);
+        if(!row) continue;
+        const bar    = row.querySelector('.ch-bar');
+        const noteEl = document.getElementById(`note-fm${ch}`);
+        const volEl  = document.getElementById(`vol-fm${ch}`);
+        if(bar) bar.style.width = `${Math.min(100,info.vol*100)}%`;
+        if(noteEl) noteEl.textContent = info.note;
+        if(volEl)  volEl.textContent  = `${Math.round(info.vol*100)}%`;
+        row.classList.toggle('active', emu.fm[ch].keyOn);
+        for(let s=0;s<4;s++){
+          const dot=document.getElementById(`op${ch}-${s}`);
+          if(dot) dot.classList.toggle('on',info.opOn[s]);
+        }
+      }
+    } else {
+      // YM2203: 3ch FM + 3ch SSG (既存コード)
+      for(let ch=0;ch<3;ch++) {
+        const info = emu.getChInfo(ch);
+        const row  = document.getElementById(`ch-fm${ch}`);
+        const bar  = row.querySelector('.ch-bar');
+        const noteEl = document.getElementById(`note-fm${ch}`);
+        const volEl  = document.getElementById(`vol-fm${ch}`);
+        bar.style.width = `${Math.min(100,info.vol*100)}%`;
+        noteEl.textContent = info.note;
+        volEl.textContent  = `${Math.round(info.vol*100)}%`;
+        row.classList.toggle('active', emu.fm[ch].keyOn);
+        for(let s=0;s<4;s++){
+          const dot=document.getElementById(`op${ch}-${s}`);
+          if(dot) dot.classList.toggle('on',info.opOn[s]);
+        }
+      }
+      for(let ch=0;ch<3;ch++) {
+        const info = emu.getSsgInfo(ch);
+        const row  = document.getElementById(`ch-ssg${ch}`);
+        const bar  = row.querySelector('.ch-bar');
+        const noteEl = document.getElementById(`note-ssg${ch}`);
+        const volEl  = document.getElementById(`vol-ssg${ch}`);
+        bar.style.width = `${Math.min(100,info.vol*100)}%`;
+        noteEl.textContent = info.note;
+        volEl.textContent  = `${Math.round(info.vol*100)}%`;
+        row.classList.toggle('active', info.active);
+        const dot=document.getElementById(`ssg${ch}-dot`);
+        if(dot) dot.classList.toggle('on',info.active);
+      }
+    }
+  }
   _updateOpDetail() {
     if(!this.player || !this.player.emu) return;
     const ch = this._selOpCh || 0;
