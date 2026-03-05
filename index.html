@@ -5,8 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RETRO SOUND PLAYER</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&family=Orbitron:wght@400;700;900&display=swap');
-
+  
   :root {
     --bg: #0a0a0f;
     --panel: #0f0f1a;
@@ -53,7 +52,7 @@
       rgba(0,0,0,0.15) 3px, rgba(0,0,0,0.15) 4px
     );
     pointer-events: none; z-index: 999;
-    animation: scanroll 8s linear infinite;
+    
   }
 
   @keyframes scanroll {
@@ -84,7 +83,7 @@
     color: var(--accent);
     text-shadow: var(--glow);
     letter-spacing: 4px;
-    animation: flicker 6s infinite;
+   
   }
 
   @keyframes flicker {
@@ -499,7 +498,7 @@
     display: inline-block;
     flex-shrink: 0;
   }
-  .led.on { background: var(--accent); box-shadow: var(--glow); animation: pulse-led 0.5s infinite alternate; }
+  .led.on { background: var(--accent); box-shadow: var(--glow);  }
   .led.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
   .led.err { background: var(--red); box-shadow: 0 0 6px var(--red); }
 
@@ -726,7 +725,7 @@
       </div>
 
       <!-- WAVEFORM + SPECTRUM -->
-      <div class="panel">
+      <div style="display:none" class="panel">
         <div class="panel-title">WAVEFORM / SPECTRUM</div>
         <canvas id="vizCanvas"></canvas>
         <canvas id="specCanvas"></canvas>
