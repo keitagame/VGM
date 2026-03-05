@@ -915,7 +915,8 @@ class YM2203Emu {
 
     // EG level → linear amplitude (0=1.0, 1023≈0)
     this.EG2AMP = new Float32Array(1024);
-    for(let i=0;i<1024;i++) this.EG2AMP[i] = (i < 832) ? Math.pow(10, -i*0.1875/20) : 0;
+    for(let i=0;i<1024;i++) this.EG2AMP[i] = Math.pow(2, -i / 128);  // 緩やかで実機に近い
+//this.EG2AMP[i] = (i < 832) ? Math.pow(10, -i*0.1875/20) : 0;
 
     // EG increment table (MAME reference)
     // Indexed by [rate>>2][counter&7], where counter cycles at EG clock
@@ -1215,14 +1216,14 @@ class YM2203Emu {
     // mod = phase offset in 20-bit units
     // Returns amplitude-weighted sin, range ≈ ±1
    const opSin = (op, mod) => {
-  const att = Math.min(1023, op.egLevel + (op.tl << 2));
+  const att = Math.min(1023, op.egLevel + (op.tl << 1));
   if(att >= 832) return 0;
 
   // ここが超重要
   const phase = (op.phase + mod) & 0xFFFFF;
   const idx = (phase >>> 10) & 1023;
 
-  return sin[idx];
+  return sin[idx] * e2a[att];
 };
 
     // Feedback: OP1 self-modulates using average of last two outputs
@@ -1241,7 +1242,7 @@ fb = fbAvg * (c.feedback * 2.5);
     // Standard OPN: max mod = ±1 full cycle when mod_depth = 1.0
     // We use PM/8 as the scale so that strong modulation sweeps half cycle
     //const S = 125; // scale factor for modulation
-const S = 1 << 18;  // 262144
+const S = 524288;  // 262144
     let o1=op1out, o2, o3, o4, result;
     switch(c.algorithm) {
       case 0: // 1→2→3→4
@@ -1270,8 +1271,8 @@ const S = 1 << 18;  // 262144
         o4 = opSin(ops[3], 0); result = o1+o2+o3+o4; break;
       default: result = 0;
     }
-return Math.tanh(result * 0.8);
-   // return result;
+//return Math.tanh(result * 0.8);
+    return result;
   }
 
   _ssgTick() {
@@ -1326,7 +1327,7 @@ return Math.tanh(result * 0.8);
     let vol = 0;
     for(const i of cars) {
       const op = c.ops[i];
-      const att = Math.min(1023, op.egLevel + (op.tl<<2));
+      const att = Math.min(1023, op.egLevel + (op.tl<<1));
       vol += this.EG2AMP[att];
     }
     return { note, vol: vol/cars.length, opOn, algorithm:c.algorithm, feedback:c.feedback };
