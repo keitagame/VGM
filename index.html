@@ -1076,6 +1076,29 @@ class YM2203Emu {
     op.rateSR = op.sr ? clamp(op.sr*2 + ks) : 0;
     op.rateRR = clamp(op.rr*4 + 2 + ks);
   }
+_calcRates(ch, op) {
+  const kc = ch.keycode || 0;
+  const ks = op.ks ? (kc >> 1) : (kc >> 2);  // ← KS を弱める
+  const clamp = r => Math.min(63, Math.max(0, r));
+
+  op.rateAR = op.ar ? clamp((op.ar << 1) + ks) : 0;
+  op.rateDR = op.dr ? clamp((op.dr << 1) + ks) : 0;
+  op.rateSR = op.sr ? clamp((op.sr << 1) + ks) : 0;
+  op.rateRR = clamp((op.rr << 2) + 2 + ks);
+}
+_calcRates(ch, op) {
+  const kc = ch.keycode || 0;
+
+  // 実機に近い KS
+  const ks = op.ks ? (kc >> 1) : (kc >> 2);
+
+  const clamp = r => Math.min(63, Math.max(0, r));
+
+  op.rateAR = op.ar ? clamp((op.ar << 1) + ks) : 0;
+  op.rateDR = op.dr ? clamp((op.dr << 1) + ks) : 0;
+  op.rateSR = op.sr ? clamp((op.sr << 1) + ks) : 0;
+  op.rateRR = clamp((op.rr << 2) + 2 + ks);
+}
 
   _keyOn(ch, slotMask) {
     const c = this.fm[ch];
