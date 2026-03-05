@@ -1376,17 +1376,6 @@ const S = 624288;  // 262144
   }
 }
 
-// SSG logarithmic volume table (AY-3-8910 style, 16 levels)
-const SSG_VOL = new Float32Array(16);
-for(let i=0;i<16;i++) SSG_VOL[i] = i===0 ? 0 : Math.pow(10, (i-15)*1.5/20);
-
-function _hzNote(hz) {
-  if(hz < 16 || hz > 22000) return '---';
-  const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  const n = Math.round(12*Math.log2(hz/440))+69;
-  return N[((n%12)+12)%12] + (Math.floor(n/12)-1);
-}
-
 // ─── YM2612 (OPN2) EMULATOR ───────────────────────────────────
 // FM: 6ch × 4op, no SSG, DAC channel 6
 class YM2612Emu {
@@ -1690,7 +1679,11 @@ class YM2151Emu {
       fbBuf: new Float32Array(2),
       ops: Array.from({length:4}, ()=>this._newOp()),
     }));
-
+ this.ssg = Array.from({length:3}, () =>
+      ({period:1, phase:0, out:0, vol:0, envEnable:false, toneEn:false, noiseEn:false}));
+    this.ssgNoise = {period:1, phase:0, lfsr:0x1FFFF, out:1};
+    this.ssgEnv   = {period:1, phase:0, step:0, stepLen:1, shape:0,
+                     level:0, attack:false, alt:false, hold:false, holding:false};
     // Noise
     this.noiseEnabled=false; this.noiseFreq=0;
     this.noiseLfsr=0x1FFFF; this.noisePhase=0; this.noisePeriod=1;
@@ -1937,6 +1930,17 @@ class YM2151Emu {
   }
 }
 
+// SSG logarithmic volume table (AY-3-8910 style, 16 levels)
+const SSG_VOL = new Float32Array(16);
+for(let i=0;i<16;i++) SSG_VOL[i] = i===0 ? 0 : Math.pow(10, (i-15)*1.5/20);
+
+function _hzNote(hz) {
+  if(hz < 16 || hz > 22000) return '---';
+  const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const n = Math.round(12*Math.log2(hz/440))+69;
+  return N[((n%12)+12)%12] + (Math.floor(n/12)-1);
+}
+
 // ─── VGM PARSER ────────────────────────────────────────────
 class VgmParser {
   constructor(buffer) {
@@ -2100,6 +2104,8 @@ load(vgm) {
       this.chipType = 'ym2203';
       this.emu = new YM2203Emu(h.ym2203Clock || 3993600, 44100);
     }
+console.log("chipType =", this.chipType);
+
     this.ae.emu = this.emu;
     this.ae.player = this;
     this.reset();
